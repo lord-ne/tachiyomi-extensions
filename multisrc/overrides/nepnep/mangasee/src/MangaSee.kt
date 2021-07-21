@@ -12,7 +12,6 @@ class MangaSee : NepNep("MangaSee", "https://mangasee123.com", "en") {
     private val rateLimitInterceptor = RateLimitInterceptor(1, 2)
 
     override val client: OkHttpClient = network.cloudflareClient.newBuilder()
-        .addNetworkInterceptor(rateLimitInterceptor)
         .connectTimeout(1, TimeUnit.MINUTES)
         .readTimeout(1, TimeUnit.MINUTES)
         .writeTimeout(1, TimeUnit.MINUTES)
