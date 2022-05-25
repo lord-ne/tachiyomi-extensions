@@ -1,7 +1,10 @@
 package eu.kanade.tachiyomi.extension.en.hentaiwebtoon
 
 import eu.kanade.tachiyomi.multisrc.madara.Madara
-import eu.kanade.tachiyomi.annotations.Nsfw
 
-@Nsfw
-class HentaiWebtoon : Madara("HentaiWebtoon", "https://hentaiwebtoon.com", "en")
+class HentaiWebtoon : Madara("HentaiWebtoon", "https://hentaiwebtoon.com", "en") {
+
+    // The website does not flag the content.
+    override val useLoadMoreSearch = false
+    override val filterNonMangaItems = false
+}

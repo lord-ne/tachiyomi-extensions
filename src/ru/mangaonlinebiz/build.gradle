@@ -1,12 +1,12 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
+apply plugin: 'kotlinx-serialization'
 
 ext {
     extName = 'Mangaonlinebiz'
     pkgNameSuffix = 'ru.mangaonlinebiz'
     extClass = '.MangaOnlineBiz'
-    extVersionCode = 8
-    libVersion = '1.2'
+    extVersionCode = 10
 }
 
 apply from: "$rootDir/common.gradle"

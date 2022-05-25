@@ -6,6 +6,7 @@
         <activity
             android:name=".zh.jinmantiantang.JinmantiantangUrlActivity"
             android:excludeFromRecents="true"
+            android:exported="true"
             android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -22,15 +23,15 @@
                     android:pathPattern="/album/..*"
                     android:scheme="https" />
                 <data
-                    android:host="18comic.art"
+                    android:host="jmcomic9.cc"
                     android:pathPattern="/album/..*"
                     android:scheme="https" />
                 <data
-                    android:host="18comic1.art"
+                    android:host="jmcomic.mobi"
                     android:pathPattern="/album/..*"
                     android:scheme="https" />
                 <data
-                    android:host="18comic2.art"
+                    android:host="jmcomic1.mobi"
                     android:pathPattern="/album/..*"
                     android:scheme="https" />
             </intent-filter>

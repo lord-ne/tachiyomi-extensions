@@ -3,9 +3,12 @@ package eu.kanade.tachiyomi.multisrc.wpmangastream
 import android.app.Application
 import android.content.SharedPreferences
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
+import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
@@ -14,7 +17,9 @@ import eu.kanade.tachiyomi.util.asJsoup
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.FormBody
 import okhttp3.Headers
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -23,6 +28,8 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
+import rx.Observable
+import rx.Single
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
@@ -38,14 +45,6 @@ abstract class WPMangaStream(
     private val dateFormat: SimpleDateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
 ) : ConfigurableSource, ParsedHttpSource() {
     override val supportsLatest = true
-
-    companion object {
-        private const val MID_QUALITY = 1
-        private const val LOW_QUALITY = 2
-
-        private const val SHOW_THUMBNAIL_PREF_Title = "Default thumbnail quality"
-        private const val SHOW_THUMBNAIL_PREF = "showThumbnailDefault"
-    }
 
     private val preferences: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
@@ -88,6 +87,59 @@ abstract class WPMangaStream(
         return GET("$baseUrl/manga/?page=$page&order=update", headers)
     }
 
+    /**
+     * Given some string which represents an http url, returns the URI path to the corresponding series
+     * if the original pointed to either a series or a chapter
+     *
+     * @param s: String - url
+     *
+     * @returns URI path or null
+     */
+    protected open fun mangaPathFromUrl(s: String): Single<String?> {
+        val baseMangaUrl = baseUrl.toHttpUrlOrNull()!!
+        // Would be dope if wpmangastream had a mangaUrlDirectory like wpmangareader
+        val mangaDirectories = listOf("manga", "comics", "komik")
+        return s.toHttpUrlOrNull()?.let { url ->
+            fun pathLengthIs(url: HttpUrl, n: Int, strict: Boolean = false) = url.pathSegments.size == n && url.pathSegments[n - 1].isNotEmpty() || (!strict && url.pathSegments.size == n + 1 && url.pathSegments[n].isEmpty())
+            val potentiallyChapterUrl = pathLengthIs(url, 1)
+            val isMangaUrl = listOf(
+                baseMangaUrl.topPrivateDomain() == url.topPrivateDomain(),
+                pathLengthIs(url, 2),
+                url.pathSegments[0] in mangaDirectories
+            ).all { it }
+            if (isMangaUrl)
+                Single.just(url.encodedPath)
+            else if (potentiallyChapterUrl)
+                client.newCall(GET(s, headers)).asObservableSuccess().map {
+                    val links = it.asJsoup().select("a[itemprop=item]")
+                    if (links.size == 3) //  near the top of page: home > manga > current chapter
+                        links[1].attr("href").toHttpUrlOrNull()?.encodedPath
+                    else
+                        null
+                }.toSingle()
+            else
+                Single.just(null)
+        } ?: Single.just(null)
+    }
+
+    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
+        if (!query.startsWith(URL_SEARCH_PREFIX))
+            return super.fetchSearchManga(page, query, filters)
+
+        return mangaPathFromUrl(query.substringAfter(URL_SEARCH_PREFIX))
+            .toObservable()
+            .concatMap { path ->
+                if (path == null)
+                    Observable.just(MangasPage(emptyList(), false))
+                else
+                    fetchMangaDetails(SManga.create().apply { this.url = path })
+                        .map {
+                            it.url = path // isn't set in returned manga
+                            MangasPage(listOf(it), false)
+                        }
+            }
+    }
+
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         var url = "$baseUrl/manga/".toHttpUrlOrNull()!!.newBuilder()
         url.addQueryParameter("title", query)
@@ -101,12 +153,7 @@ abstract class WPMangaStream(
                     url.addQueryParameter("yearx", filter.state)
                 }
                 is StatusFilter -> {
-                    val status = when (filter.state) {
-                        Filter.TriState.STATE_INCLUDE -> "completed"
-                        Filter.TriState.STATE_EXCLUDE -> "ongoing"
-                        else -> ""
-                    }
-                    url.addQueryParameter("status", status)
+                    url.addQueryParameter("status", filter.toUriPart())
                 }
                 is TypeFilter -> {
                     url.addQueryParameter("type", filter.toUriPart())
@@ -157,8 +204,8 @@ abstract class WPMangaStream(
         return SManga.create().apply {
             document.select("div.bigcontent, div.animefull, div.main-info").firstOrNull()?.let { infoElement ->
                 status = parseStatus(infoElement.select("span:contains(Status:), .imptdt:contains(Status) i").firstOrNull()?.ownText())
-                author = infoElement.select("span:contains(Author:), span:contains(Pengarang:), .fmed b:contains(Author)+span, .imptdt:contains(Author) i").firstOrNull()?.ownText()
-                artist = infoElement.select(".fmed b:contains(Artist)+span, .imptdt:contains(Artist) i").firstOrNull()?.ownText()
+                author = isEmptyPlaceholder(infoElement.select("span:contains(Author:), span:contains(Pengarang:), .fmed b:contains(Author)+span, .imptdt:contains(Author) i").firstOrNull()?.ownText())
+                artist = isEmptyPlaceholder(infoElement.select(".fmed b:contains(Artist)+span, .imptdt:contains(Artist) i").firstOrNull()?.ownText())
                 description = infoElement.select("div.desc p, div.entry-content p").joinToString("\n") { it.text() }
                 thumbnail_url = infoElement.select("div.thumb img").imgAttr()
 
@@ -199,6 +246,10 @@ abstract class WPMangaStream(
         else -> SManga.UNKNOWN
     }
 
+    private fun isEmptyPlaceholder(string: String?): String? {
+        return if (string == "-" || string == "N/A") "" else string
+    }
+
     override fun chapterListSelector() = "div.bxcl ul li, div.cl ul li, ul li:has(div.chbox):has(div.eph-num)"
 
     override fun chapterListParse(response: Response): List<SChapter> {
@@ -209,6 +260,8 @@ abstract class WPMangaStream(
         val date = document.select(".fmed:contains(update) time ,span:contains(update) time").attr("datetime")
         val checkChapter = document.select(chapterListSelector()).firstOrNull()
         if (date != "" && checkChapter != null) chapters[0].date_upload = parseDate(date)
+
+        countViews(document)
 
         return chapters
     }
@@ -222,7 +275,8 @@ abstract class WPMangaStream(
         val chapter = SChapter.create()
         chapter.setUrlWithoutDomain(urlElement.attr("href"))
         chapter.name = if (urlElement.select("span.chapternum").isNotEmpty()) urlElement.select("span.chapternum").text() else urlElement.text()
-        chapter.date_upload = element.select("span.rightoff, time, span.chapterdate").firstOrNull()?.text()?.let { parseChapterDate(it) } ?: 0
+        chapter.date_upload = element.select("span.rightoff, time, span.chapterdate").firstOrNull()?.text()?.let { parseChapterDate(it) }
+            ?: 0
         return chapter
     }
 
@@ -296,6 +350,8 @@ abstract class WPMangaStream(
             htmlPages += scriptPages
         }
 
+        countViews(document)
+
         return htmlPages.distinctBy { it.imageUrl }
     }
 
@@ -325,6 +381,48 @@ abstract class WPMangaStream(
             MID_QUALITY -> "https://images.weserv.nl/?w=600&q=70&url=$url"
             else -> originalUrl
         }
+    }
+
+    /**
+     * Set it to false if you want to disable the extension reporting the view count
+     * back to the source website through admin-ajax.php.
+     */
+    protected open val sendViewCount: Boolean = true
+
+    protected open fun countViewsRequest(document: Document): Request? {
+        val wpMangaData = document.select("script:containsData(dynamic_view_ajax)").firstOrNull()
+            ?.data() ?: return null
+
+        val postId = CHAPTER_PAGE_ID_REGEX.find(wpMangaData)?.groupValues?.get(1)
+            ?: MANGA_PAGE_ID_REGEX.find(wpMangaData)?.groupValues?.get(1)
+            ?: return null
+
+        val formBody = FormBody.Builder()
+            .add("action", "dynamic_view_ajax")
+            .add("post_id", postId)
+            .build()
+
+        val newHeaders = headersBuilder()
+            .set("Content-Length", formBody.contentLength().toString())
+            .set("Content-Type", formBody.contentType().toString())
+            .set("Referer", document.location())
+            .build()
+
+        return POST("$baseUrl/wp-admin/admin-ajax.php", newHeaders, formBody)
+    }
+
+    /**
+     * Send the view count request to the Madara endpoint.
+     *
+     * @param document The response document with the wp-manga data
+     */
+    protected open fun countViews(document: Document) {
+        if (!sendViewCount) {
+            return
+        }
+
+        val request = countViewsRequest(document) ?: return
+        runCatching { client.newCall(request).execute().close() }
     }
 
     private class AuthorFilter : Filter.Text("Author")
@@ -359,7 +457,9 @@ abstract class WPMangaStream(
         arrayOf(
             Pair("All", ""),
             Pair("Ongoing", "ongoing"),
-            Pair("Completed", "completed")
+            Pair("Completed", "completed"),
+            Pair("Hiatus", "hiatus"),
+            Pair("Dropped", "dropped")
         )
     )
 
@@ -410,17 +510,21 @@ abstract class WPMangaStream(
         Genre("Completed", "completed"),
         Genre("Cooking", "cooking"),
         Genre("Crime", "crime"),
+        Genre("Cultivation", "cultivation"),
         Genre("Demon", "demon"),
         Genre("Demons", "demons"),
         Genre("Doujinshi", "doujinshi"),
         Genre("Drama", "drama"),
+        Genre("Dungeons", "dungeons"),
         Genre("Ecchi", "ecchi"),
         Genre("Fantasy", "fantasy"),
         Genre("Game", "game"),
         Genre("Games", "games"),
         Genre("Gender Bender", "gender-bender"),
+        Genre("Genius", "genius"),
         Genre("Gore", "gore"),
         Genre("Harem", "harem"),
+        Genre("Hero", "hero"),
         Genre("Historical", "historical"),
         Genre("Horror", "horror"),
         Genre("Isekai", "isekai"),
@@ -438,14 +542,17 @@ abstract class WPMangaStream(
         Genre("Monster Girls", "monster-girls"),
         Genre("Monsters", "monsters"),
         Genre("Music", "music"),
+        Genre("Murim", "murim"),
         Genre("Mystery", "mystery"),
         Genre("One-shot", "one-shot"),
         Genre("Oneshot", "oneshot"),
+        Genre("Overpowered", "overpowered"),
         Genre("Police", "police"),
         Genre("Pshycological", "pshycological"),
         Genre("Psychological", "psychological"),
         Genre("Reincarnation", "reincarnation"),
         Genre("Reverse Harem", "reverse-harem"),
+        Genre("Return", "return"),
         Genre("Romancce", "romancce"),
         Genre("Romance", "romance"),
         Genre("Samurai", "samurai"),
@@ -465,6 +572,7 @@ abstract class WPMangaStream(
         Genre("Time Travel", "time-travel"),
         Genre("Tragedy", "tragedy"),
         Genre("Vampire", "vampire"),
+        Genre("Villain", "villain"),
         Genre("Webtoon", "webtoon"),
         Genre("Webtoons", "webtoons"),
         Genre("Yaoi", "yaoi"),
@@ -475,5 +583,18 @@ abstract class WPMangaStream(
     open class UriPartFilter(displayName: String, private val vals: Array<Pair<String, String>>) :
         Filter.Select<String>(displayName, vals.map { it.first }.toTypedArray()) {
         fun toUriPart() = vals[state].second
+    }
+
+    companion object {
+        private const val MID_QUALITY = 1
+        private const val LOW_QUALITY = 2
+
+        private const val SHOW_THUMBNAIL_PREF_Title = "Default thumbnail quality"
+        private const val SHOW_THUMBNAIL_PREF = "showThumbnailDefault"
+
+        const val URL_SEARCH_PREFIX = "url:"
+
+        private val MANGA_PAGE_ID_REGEX = "post_id\\s*:\\s*(\\d+)\\}".toRegex()
+        private val CHAPTER_PAGE_ID_REGEX = "chapter_id\\s*=\\s*(\\d+);?".toRegex()
     }
 }

@@ -10,12 +10,12 @@ class PizzaReaderGenerator : ThemeSourceGenerator {
 
     override val themeClass = "PizzaReader"
 
-    override val baseVersionCode: Int = 0
+    override val baseVersionCode: Int = 2
 
     override val sources = listOf(
         SingleLang("Phoenix Scans", "https://www.phoenixscans.com", "it", className = "PhoenixScans", overrideVersionCode = 4),
-        // Current migrating to this CMS:
-        // SingleLang("GTO The Great Site", "https://reader.gtothegreatsite.net", "it", className = "GTO", overrideVersionCode = 4),
+        SingleLang("GTO The Great Site", "https://reader.gtothegreatsite.net", "it", className = "GTO", overrideVersionCode = 3),
+        SingleLang("LupiTeam", "https://lupiteam.net", "it", overrideVersionCode = 3),
     )
 
     companion object {

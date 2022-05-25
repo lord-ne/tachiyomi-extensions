@@ -4,4 +4,9 @@ import eu.kanade.tachiyomi.multisrc.madara.Madara
 
 class ManhuaUS : Madara("ManhuaUS", "https://manhuaus.com", "en") {
 
+    override val useNewChapterEndpoint: Boolean = true
+
+    // The website does not flag the content.
+    override val useLoadMoreSearch = false
+    override val filterNonMangaItems = false
 }

@@ -5,8 +5,7 @@ ext {
     extName = 'KomikIndoID'
     pkgNameSuffix = 'id.komikindoid'
     extClass = '.KomikIndoID'
-    extVersionCode = 3
-    libVersion = '1.2'
+    extVersionCode = 4
 }
 
 apply from: "$rootDir/common.gradle"

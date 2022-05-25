@@ -1,8 +1,12 @@
 package eu.kanade.tachiyomi.extension.ru.mintmanga
 
+import android.app.Application
+import android.content.SharedPreferences
+import android.widget.Toast
 import eu.kanade.tachiyomi.lib.ratelimit.RateLimitInterceptor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
@@ -19,15 +23,21 @@ import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
+import java.io.IOException
+import java.text.DecimalFormat
 import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.regex.Pattern
 
-class Mintmanga : ParsedHttpSource() {
+class Mintmanga : ConfigurableSource, ParsedHttpSource() {
 
     override val id: Long = 6
-
+    private val preferences: SharedPreferences by lazy {
+        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
+    }
     override val name = "Mintmanga"
 
     override val baseUrl = "https://mintmanga.live"
@@ -39,7 +49,21 @@ class Mintmanga : ParsedHttpSource() {
     private val rateLimitInterceptor = RateLimitInterceptor(2)
 
     override val client: OkHttpClient = network.client.newBuilder()
-        .addNetworkInterceptor(rateLimitInterceptor).build()
+        .addNetworkInterceptor(rateLimitInterceptor)
+        .addNetworkInterceptor { chain ->
+            val originalRequest = chain.request()
+            val response = chain.proceed(originalRequest)
+            if (originalRequest.url.toString().contains(baseUrl) and (originalRequest.url.toString().contains("internal/redirect") or (response.code == 301)))
+                throw IOException("Манга переехала на другой адрес/ссылку!")
+            response
+        }
+        .build()
+
+    private var uagent: String = preferences.getString(UAGENT_TITLE, UAGENT_DEFAULT)!!
+    override fun headersBuilder() = Headers.Builder().apply {
+        add("User-Agent", uagent)
+        add("Referer", baseUrl)
+    }
 
     override fun popularMangaRequest(page: Int): Request =
         GET("$baseUrl/list?sortType=rate&offset=${70 * (page - 1)}", headers)
@@ -53,7 +77,7 @@ class Mintmanga : ParsedHttpSource() {
 
     override fun popularMangaFromElement(element: Element): SManga {
         val manga = SManga.create()
-        manga.thumbnail_url = element.select("img.lazy").first()?.attr("data-original")
+        manga.thumbnail_url = element.select("img.lazy").first()?.attr("data-original")?.replace("_p.", ".")
         element.select("h3 > a").first().let {
             manga.setUrlWithoutDomain(it.attr("href"))
             manga.title = it.attr("title")
@@ -128,7 +152,7 @@ class Mintmanga : ParsedHttpSource() {
             "манга"
         }
         val ratingValue = infoElement.select(".col-sm-7 .rating-block").attr("data-score").toFloat() * 2
-        val ratingValueOver = infoElement.select(".info-icon").attr("data-content").substringAfter("Относительно остальных произведений: <b>").substringBefore("/5</b>").replace(",", ".").toFloat() * 2
+        val ratingValueOver = infoElement.select(".info-icon").attr("data-content").substringBeforeLast("/5</b><br/>").substringAfterLast(": <b>").replace(",", ".").toFloat() * 2
         val ratingVotes = infoElement.select(".col-sm-7 .user-rating meta[itemprop=\"ratingCount\"]").attr("content")
         val ratingStar = when {
             ratingValue > 9.5 -> "★★★★★"
@@ -157,12 +181,12 @@ class Mintmanga : ParsedHttpSource() {
         manga.title = document.select("h1.names .name").text()
         manga.author = authorElement
         manga.artist = infoElement.select("span.elem_illustrator").first()?.text()
-        manga.genre = infoElement.select("span.elem_genre").text().split(",").plusElement(category).plusElement(rawAgeStop).joinToString { it.trim() }
+        manga.genre = category + ", " + rawAgeStop + ", " + infoElement.select("span.elem_genre").text().split(",").joinToString { it.trim() }
         var altName = ""
         if (infoElement.select(".another-names").isNotEmpty()) {
             altName = "Альтернативные названия:\n" + infoElement.select(".another-names").text() + "\n\n"
         }
-        manga.description = ratingStar + " " + ratingValue + "[ⓘ" + ratingValueOver + "]" + " (голосов: " + ratingVotes + ")\n" + altName + infoElement.select("div.manga-description").text()
+        manga.description = ratingStar + " " + ratingValue + "[ⓘ" + ratingValueOver + "]" + " (голосов: " + ratingVotes + ")\n" + altName + document.select("div#tab-description  .manga-description").text()
         manga.status = parseStatus(infoElement.html())
         manga.thumbnail_url = infoElement.select("img").attr("data-full")
         return manga
@@ -170,8 +194,8 @@ class Mintmanga : ParsedHttpSource() {
 
     private fun parseStatus(element: String): Int = when {
         element.contains("Запрещена публикация произведения по копирайту") || element.contains("ЗАПРЕЩЕНА К ПУБЛИКАЦИИ НА ТЕРРИТОРИИ РФ!") -> SManga.LICENSED
-        element.contains("<b>Сингл</b>") || element.contains("<b>Перевод:</b> завершен") -> SManga.COMPLETED
         element.contains("<b>Перевод:</b> продолжается") -> SManga.ONGOING
+        element.contains("<b>Сингл</b>") || element.contains("<b>Перевод:</b> завер") -> SManga.COMPLETED
         else -> SManga.UNKNOWN
     }
 
@@ -192,14 +216,15 @@ class Mintmanga : ParsedHttpSource() {
         return document.select(chapterListSelector()).map { chapterFromElement(it, manga) }
     }
 
-    override fun chapterListSelector() = "div.chapters-link > table > tbody > tr:has(td > a)"
+    override fun chapterListSelector() = "div.chapters-link > table > tbody > tr:has(td > a):has(td.date:not(.text-info))"
 
     private fun chapterFromElement(element: Element, manga: SManga): SChapter {
         val urlElement = element.select("a").first()
+        val chapterInf = element.select("td.item-title").first()
         val urlText = urlElement.text()
 
         val chapter = SChapter.create()
-        chapter.setUrlWithoutDomain(urlElement.attr("href") + "?mtr=1")
+        chapter.setUrlWithoutDomain(urlElement.attr("href") + "?mtr=true") // mtr is 18+ skip
 
         var translators = ""
         val translatorElement = urlElement.attr("title")
@@ -223,6 +248,8 @@ class Mintmanga : ParsedHttpSource() {
             chapter.name = chapter.name.substringAfter("…").trim()
         }
 
+        chapter.chapter_number = chapterInf.attr("data-num").toFloat() / 10
+
         chapter.date_upload = element.select("td.d-none").last()?.text()?.let {
             try {
                 SimpleDateFormat("dd.MM.yy", Locale.US).parse(it)?.time ?: 0L
@@ -238,26 +265,24 @@ class Mintmanga : ParsedHttpSource() {
     }
 
     override fun prepareNewChapter(chapter: SChapter, manga: SManga) {
-        val basic = Regex("""\s*([0-9]+)(\s-\s)([0-9]+)\s*""")
         val extra = Regex("""\s*([0-9]+\sЭкстра)\s*""")
         val single = Regex("""\s*Сингл\s*""")
         when {
-            basic.containsMatchIn(chapter.name) -> {
-                basic.find(chapter.name)?.let {
-                    val number = it.groups[3]?.value!!
-                    chapter.chapter_number = number.toFloat()
-                }
+            extra.containsMatchIn(chapter.name) -> {
+                if (chapter.name.substringAfter("Экстра").trim().isEmpty())
+                    chapter.name = chapter.name.replaceFirst(" ", " - " + DecimalFormat("#,###.##").format(chapter.chapter_number).replace(",", ".") + " ")
             }
-            extra.containsMatchIn(chapter.name) -> // Extra chapters doesn't contain chapter number
-                chapter.chapter_number = -2f
-            single.containsMatchIn(chapter.name) -> // Oneshoots, doujinshi and other mangas with one chapter
-                chapter.chapter_number = 1f
+
+            single.containsMatchIn(chapter.name) -> {
+                if (chapter.name.substringAfter("Сингл").trim().isEmpty())
+                    chapter.name = DecimalFormat("#,###.##").format(chapter.chapter_number).replace(",", ".") + " " + chapter.name
+            }
         }
     }
 
     override fun pageListParse(response: Response): List<Page> {
         val html = response.body!!.string()
-        val beginIndex = html.indexOf("rm_h.init( [")
+        val beginIndex = html.indexOf("rm_h.initReader( [")
         val endIndex = html.indexOf(");", beginIndex)
         val trimmedHtml = html.substring(beginIndex, endIndex)
 
@@ -319,10 +344,6 @@ class Mintmanga : ParsedHttpSource() {
         }
     }
 
-    companion object {
-        const val PREFIX_SLUG_SEARCH = "slug:"
-    }
-
     private class OrderBy : Filter.Select<String>(
         "Сортировка (только)",
         arrayOf("Без сортировки", "По году", "По популярности", "Популярно сейчас", "По рейтингу", "Новинки", "По дате обновления")
@@ -336,11 +357,6 @@ class Mintmanga : ParsedHttpSource() {
     private class More(moren: List<Genre>) : Filter.Group<Genre>("Прочее", moren)
     private class FilList(fils: List<Genre>) : Filter.Group<Genre>("Фильтры", fils)
 
-    /* [...document.querySelectorAll("tr.advanced_option:nth-child(1) > td:nth-child(3) span.js-link")]
-    *  .map(el => `Genre("${el.textContent.trim()}", $"{el.getAttribute('onclick')
-    *  .substr(31,el.getAttribute('onclick').length-33)"})`).join(',\n')
-    *  on https://mintmanga.live/search/advanced
-    */
     override fun getFilterList() = FilterList(
         OrderBy(),
         Category(getCategoryList()),
@@ -424,4 +440,32 @@ class Mintmanga : ParsedHttpSource() {
         Genre("юри", "el_1315"),
         Genre("яой", "el_1336")
     )
+    override fun setupPreferenceScreen(screen: androidx.preference.PreferenceScreen) {
+        screen.addPreference(screen.editTextPreference(UAGENT_TITLE, UAGENT_DEFAULT, uagent))
+    }
+
+    private fun androidx.preference.PreferenceScreen.editTextPreference(title: String, default: String, value: String): androidx.preference.EditTextPreference {
+        return androidx.preference.EditTextPreference(context).apply {
+            key = title
+            this.title = title
+            summary = value
+            this.setDefaultValue(default)
+            dialogTitle = title
+            setOnPreferenceChangeListener { _, newValue ->
+                try {
+                    val res = preferences.edit().putString(title, newValue as String).commit()
+                    Toast.makeText(context, "Для смены User-Agent необходимо перезапустить приложение с полной остановкой.", Toast.LENGTH_LONG).show()
+                    res
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    false
+                }
+            }
+        }
+    }
+    companion object {
+        private const val UAGENT_TITLE = "User-Agent(для некоторых стран)"
+        private const val UAGENT_DEFAULT = "arora"
+        const val PREFIX_SLUG_SEARCH = "slug:"
+    }
 }

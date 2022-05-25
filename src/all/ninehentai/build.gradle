@@ -7,8 +7,7 @@ ext {
     pkgNameSuffix = 'all.ninehentai'
     extClass = '.NineHentai'
     extVersionCode = 13
-    libVersion = '1.2'
-    containsNsfw = true
+    isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"

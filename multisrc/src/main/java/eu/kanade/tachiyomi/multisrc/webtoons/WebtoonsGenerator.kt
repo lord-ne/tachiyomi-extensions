@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.multisrc.webtoons
 
-import generator.ThemeSourceData.SingleLang
 import generator.ThemeSourceData.MultiLang
+import generator.ThemeSourceData.SingleLang
 import generator.ThemeSourceGenerator
 
 class WebtoonsGenerator : ThemeSourceGenerator {
@@ -13,7 +13,7 @@ class WebtoonsGenerator : ThemeSourceGenerator {
     override val baseVersionCode: Int = 2
 
     override val sources = listOf(
-        MultiLang("Webtoons.com", "https://www.webtoons.com", listOf("en", "fr", "es", "id", "th", "zh"), className = "WebtoonsFactory", pkgName = "webtoons", overrideVersionCode = 29),
+        MultiLang("Webtoons.com", "https://www.webtoons.com", listOf("en", "fr", "es", "id", "th", "zh-Hant", "de"), className = "WebtoonsFactory", pkgName = "webtoons", overrideVersionCode = 33),
         SingleLang("Dongman Manhua", "https://www.dongmanmanhua.cn", "zh")
     )
 

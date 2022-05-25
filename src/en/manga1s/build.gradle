@@ -5,9 +5,8 @@ ext {
     extName = 'Manga1s'
     pkgNameSuffix = 'en.manga1s'
     extClass = '.manga1s'
-    extVersionCode = 1
-    libVersion = '1.2'
-    containsNsfw = true
+    extVersionCode = 3
+    isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"

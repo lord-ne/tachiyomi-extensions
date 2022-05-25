@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.en.hentaifox
 
-import eu.kanade.tachiyomi.annotations.Nsfw
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -17,7 +16,6 @@ import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import rx.Observable
 
-@Nsfw
 class HentaiFox : ParsedHttpSource() {
 
     override val name = "HentaiFox"
@@ -33,7 +31,11 @@ class HentaiFox : ParsedHttpSource() {
     // Popular
 
     override fun popularMangaRequest(page: Int): Request {
-        return GET("$baseUrl/pag/$page/", headers)
+        return if (page == 2) {
+            GET("$baseUrl/page/$page/", headers)
+        } else {
+            GET("$baseUrl/pag/$page/", headers)
+        }
     }
 
     override fun popularMangaSelector() = "div.thumb"
@@ -134,7 +136,7 @@ class HentaiFox : ParsedHttpSource() {
     }
 
     override fun imageUrlParse(document: Document): String {
-        return document.select("img#gimg").attr("abs:src")
+        return document.select("img#gimg").attr("abs:data-src")
     }
 
     override fun pageListParse(document: Document): List<Page> = throw UnsupportedOperationException("Not used")

@@ -5,8 +5,8 @@ ext {
     extName = 'MangaJar'
     pkgNameSuffix = 'en.mangajar'
     extClass = '.MangaJar'
-    extVersionCode = 5
-    libVersion = '1.2'
+    extVersionCode = 9
+    isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"

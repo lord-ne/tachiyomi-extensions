@@ -6,7 +6,6 @@ import eu.kanade.tachiyomi.source.SourceFactory
 import java.text.SimpleDateFormat
 import java.util.GregorianCalendar
 import java.util.Locale
-import java.util.Calendar
 
 class WebtoonsFactory : SourceFactory {
     override fun createSources(): List<Source> = listOf(
@@ -16,14 +15,14 @@ class WebtoonsFactory : SourceFactory {
         WebtoonsES(),
         WebtoonsFR(),
         WebtoonsZH(),
+        WebtoonsDE(),
     )
-
 }
 class WebtoonsEN : Webtoons("Webtoons.com", "https://www.webtoons.com", "en")
 class WebtoonsID : Webtoons("Webtoons.com", "https://www.webtoons.com", "id") {
     // Override ID as part of the name was removed to be more consiten with other enteries
     override val id: Long = 8749627068478740298
-    
+
     // Android seems to be unable to parse Indonesian dates; we'll use a short hard-coded table
     // instead.
     private val dateMap: Array<String> = arrayOf(
@@ -53,4 +52,8 @@ class WebtoonsES : Webtoons("Webtoons.com", "https://www.webtoons.com", "es") {
     }
 }
 class WebtoonsFR : Webtoons("Webtoons.com", "https://www.webtoons.com", "fr", dateFormat = SimpleDateFormat("d MMM yyyy", Locale.FRENCH))
-class WebtoonsZH : Webtoons("Webtoons.com", "https://www.webtoons.com", "zh", "zh-hant", "zh_TW", SimpleDateFormat("yyyy/MM/dd", Locale.TRADITIONAL_CHINESE))
+class WebtoonsZH : Webtoons("Webtoons.com", "https://www.webtoons.com", "zh-Hant", "zh-hant", "zh_TW", SimpleDateFormat("yyyy/MM/dd", Locale.TRADITIONAL_CHINESE)) {
+    // Due to lang code getting more specific
+    override val id: Long = 2959982438613576472
+}
+class WebtoonsDE : Webtoons("Webtoons.com", "https://www.webtoons.com", "de", dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.GERMAN))

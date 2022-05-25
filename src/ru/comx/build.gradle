@@ -1,12 +1,12 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
+apply plugin: 'kotlinx-serialization'
 
 ext {
     extName = 'ComX'
     pkgNameSuffix = 'ru.comx'
     extClass = '.ComX'
-    extVersionCode = 7
-    libVersion = '1.2'
+    extVersionCode = 16
 }
 
 dependencies {

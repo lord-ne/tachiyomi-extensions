@@ -4,11 +4,6 @@ import android.app.Application
 import android.content.SharedPreferences
 import android.text.InputType
 import android.widget.Toast
-import com.github.salomonbrys.kotson.fromJson
-import com.github.salomonbrys.kotson.get
-import com.google.gson.Gson
-import com.google.gson.JsonObject
-import com.google.gson.JsonSyntaxException
 import eu.kanade.tachiyomi.BuildConfig
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
@@ -22,6 +17,14 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import info.debatty.java.stringsimilarity.JaroWinkler
 import info.debatty.java.stringsimilarity.Levenshtein
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import okhttp3.Dns
 import okhttp3.FormBody
 import okhttp3.Headers
 import okhttp3.Interceptor
@@ -32,28 +35,29 @@ import okhttp3.Response
 import rx.Observable
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
+import uy.kohesive.injekt.injectLazy
 import java.io.IOException
 
 class Mango : ConfigurableSource, HttpSource() {
 
     override fun popularMangaRequest(page: Int): Request =
-        GET("$baseUrl/api/library", headersBuilder().build())
+        GET("$baseUrl/api/library?depth=0", headersBuilder().build())
 
     // Our popular manga are just our library of manga
     override fun popularMangaParse(response: Response): MangasPage {
         val result = try {
-            gson.fromJson<JsonObject>(response.body!!.string())
-        } catch (e: JsonSyntaxException) {
+            json.decodeFromString<JsonObject>(response.body!!.string())
+        } catch (e: Exception) {
             apiCookies = ""
             throw Exception("Login Likely Failed. Try Refreshing.")
         }
-        val mangas = result["titles"].asJsonArray
+        val mangas = result["titles"]!!.jsonArray
         return MangasPage(
-            mangas.asJsonArray.map {
+            mangas.jsonArray.map {
                 SManga.create().apply {
-                    url = "/book/" + it["id"].asString
-                    title = it["display_name"].asString
-                    thumbnail_url = baseUrl + it["cover_url"].asString
+                    url = "/book/" + it.jsonObject["id"]!!.jsonPrimitive.content
+                    title = it.jsonObject["display_name"]!!.jsonPrimitive.content
+                    thumbnail_url = baseUrl + it.jsonObject["cover_url"]!!.jsonPrimitive.content
                 }
             },
             false
@@ -118,37 +122,53 @@ class Mango : ConfigurableSource, HttpSource() {
     // This will just return the same thing as the main library endpoint
     override fun mangaDetailsParse(response: Response): SManga {
         val result = try {
-            gson.fromJson<JsonObject>(response.body!!.string())
-        } catch (e: JsonSyntaxException) {
+            json.decodeFromString<JsonObject>(response.body!!.string())
+        } catch (e: Exception) {
             apiCookies = ""
             throw Exception("Login Likely Failed. Try Refreshing.")
         }
         return SManga.create().apply {
-            url = "/book/" + result["id"].asString
-            title = result["display_name"].asString
-            thumbnail_url = baseUrl + result["cover_url"].asString
+            url = "/book/" + result.jsonObject["id"]!!.jsonPrimitive.content
+            title = result.jsonObject["display_name"]!!.jsonPrimitive.content
+            thumbnail_url = baseUrl + result.jsonObject["cover_url"]!!.jsonPrimitive.content
         }
     }
 
     override fun chapterListRequest(manga: SManga): Request =
-        GET(baseUrl + "/api" + manga.url, headers)
+        GET(baseUrl + "/api" + manga.url + "?sort=auto", headers)
 
     // The chapter url will contain how many pages the chapter contains for our page list endpoint
     override fun chapterListParse(response: Response): List<SChapter> {
         val result = try {
-            gson.fromJson<JsonObject>(response.body!!.string())
-        } catch (e: JsonSyntaxException) {
+            json.decodeFromString<JsonObject>(response.body!!.string())
+        } catch (e: Exception) {
             apiCookies = ""
             throw Exception("Login Likely Failed. Try Refreshing.")
         }
-        return result["entries"].asJsonArray.mapIndexed { index, obj ->
+        return listChapters(result)
+    }
+
+    // Helper function for listing chapters and chapters in nested titles recursively
+    private fun listChapters(titleObj: JsonObject): List<SChapter> {
+        val chapters = mutableListOf<SChapter>()
+        val topChapters = titleObj["entries"]?.jsonArray?.map { obj ->
             SChapter.create().apply {
-                chapter_number = index + 1F
-                name = "${chapter_number.toInt()} - ${obj["display_name"].asString}"
-                url = "/page/${obj["title_id"].asString}/${obj["id"].asString}/${obj["pages"].asString}/"
-                date_upload = 1000L * obj["mtime"].asLong
+                name = obj.jsonObject["display_name"]!!.jsonPrimitive.content
+                url =
+                    "/page/${obj.jsonObject["title_id"]!!.jsonPrimitive.content}/${obj.jsonObject["id"]!!.jsonPrimitive.content}/${obj.jsonObject["pages"]!!.jsonPrimitive.content}/"
+                date_upload = 1000L * obj.jsonObject["mtime"]!!.jsonPrimitive.long
             }
-        }.sortedByDescending { it.date_upload }
+        }
+        val subChapters = titleObj["titles"]?.jsonArray?.map { obj ->
+            val name = obj.jsonObject["display_name"]!!.jsonPrimitive.content
+            listChapters(obj.jsonObject).map { chp ->
+                chp.name = "$name / ${chp.name}"
+                chp
+            }
+        }?.flatten()
+        if (topChapters !== null) chapters += topChapters
+        if (subChapters !== null) chapters += subChapters
+        return chapters
     }
 
     // Stub
@@ -183,10 +203,11 @@ class Mango : ConfigurableSource, HttpSource() {
     override val lang = "en"
     override val supportsLatest = false
 
+    private val json: Json by injectLazy()
     override val baseUrl by lazy { getPrefBaseUrl() }
+    private val port by lazy { getPrefPort() }
     private val username by lazy { getPrefUsername() }
     private val password by lazy { getPrefPassword() }
-    private val gson by lazy { Gson() }
     private var apiCookies: String = ""
 
     override fun headersBuilder(): Headers.Builder =
@@ -199,6 +220,7 @@ class Mango : ConfigurableSource, HttpSource() {
 
     override val client: OkHttpClient =
         network.client.newBuilder()
+            .dns(Dns.SYSTEM)
             .addInterceptor { authIntercept(it) }
             .build()
 
@@ -211,7 +233,7 @@ class Mango : ConfigurableSource, HttpSource() {
         }
 
         // Do the login if we have not gotten the cookies yet
-        if (apiCookies.isEmpty() || !apiCookies.contains("mango-sessid-9000", true)) {
+        if (apiCookies.isEmpty() || !apiCookies.contains("mango-sessid-$port", true)) {
             doLogin(chain)
         }
 
@@ -235,7 +257,7 @@ class Mango : ConfigurableSource, HttpSource() {
         val loginRequest = POST("$baseUrl/login", formHeaders, formBody)
         val response = chain.proceed(loginRequest)
         if (response.code != 200 || response.header("Set-Cookie") == null) {
-            throw Exception("Login Failed. Check Address and Credentials")
+            throw IOException("Login Failed. Check Address and Credentials")
         }
         // Save the cookies from the response
         apiCookies = response.header("Set-Cookie")!!
@@ -243,16 +265,18 @@ class Mango : ConfigurableSource, HttpSource() {
     }
 
     override fun setupPreferenceScreen(screen: androidx.preference.PreferenceScreen) {
-        screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, baseUrl))
-        screen.addPreference(screen.editTextPreference(USERNAME_TITLE, USERNAME_DEFAULT, username))
-        screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, password, true))
+        screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, "The URL to access your Mango instance. Please include the port number if you didn't set up a reverse proxy"))
+        screen.addPreference(screen.editTextPreference(PORT_TITLE, PORT_DEFAULT, "The port number to use if it's not the default 9000"))
+        screen.addPreference(screen.editTextPreference(USERNAME_TITLE, USERNAME_DEFAULT, "Your login username"))
+        screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, "Your login password", true))
     }
 
-    private fun androidx.preference.PreferenceScreen.editTextPreference(title: String, default: String, value: String, isPassword: Boolean = false): androidx.preference.EditTextPreference {
+    private fun androidx.preference.PreferenceScreen.editTextPreference(title: String, default: String, summary: String, isPassword: Boolean = false): androidx.preference.EditTextPreference {
         return androidx.preference.EditTextPreference(context).apply {
             key = title
             this.title = title
-            summary = value
+            val input = preferences.getString(title, null)
+            this.summary = if (input == null || input.isEmpty()) summary else input
             this.setDefaultValue(default)
             dialogTitle = title
 
@@ -283,14 +307,17 @@ class Mango : ConfigurableSource, HttpSource() {
         }
         return path
     }
+    private fun getPrefPort(): String = preferences.getString(PORT_TITLE, PORT_DEFAULT)!!
     private fun getPrefUsername(): String = preferences.getString(USERNAME_TITLE, USERNAME_DEFAULT)!!
     private fun getPrefPassword(): String = preferences.getString(PASSWORD_TITLE, PASSWORD_DEFAULT)!!
 
     companion object {
         private const val ADDRESS_TITLE = "Address"
         private const val ADDRESS_DEFAULT = ""
+        private const val PORT_TITLE = "Server Port Number"
+        private const val PORT_DEFAULT = "9000"
         private const val USERNAME_TITLE = "Username"
-        private const val USERNAME_DEFAULT = ""
+        private const val USERNAME_DEFAULT = "admin"
         private const val PASSWORD_TITLE = "Password"
         private const val PASSWORD_DEFAULT = ""
     }

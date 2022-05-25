@@ -5,9 +5,8 @@ ext {
     extName = 'LemonFont'
     pkgNameSuffix = 'en.lemonfont'
     extClass = '.LemonFont'
-    extVersionCode = 1
-    libVersion = '1.2'
-    containsNsfw = true
+    extVersionCode = 2
+    isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"

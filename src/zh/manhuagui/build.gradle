@@ -1,17 +1,16 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
+apply plugin: 'kotlinx-serialization'
 
 ext {
     extName = 'ManHuaGui'
     pkgNameSuffix = 'zh.manhuagui'
     extClass = '.Manhuagui'
-    extVersionCode = 9
-    libVersion = '1.2'
+    extVersionCode = 11
 }
 
 dependencies {
-    compileOnly "org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutines_version"
-    compileOnly "org.jetbrains.kotlinx:kotlinx-coroutines-android:$coroutines_version"
+    compileOnly libs.bundles.coroutines
     implementation project(':lib-ratelimit')
 }
 

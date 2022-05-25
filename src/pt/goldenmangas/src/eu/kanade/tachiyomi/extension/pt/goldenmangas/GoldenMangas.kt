@@ -13,7 +13,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -25,7 +24,7 @@ class GoldenMangas : ParsedHttpSource() {
 
     override val name = "Golden Mangás"
 
-    override val baseUrl = "https://goldenmangas.top"
+    override val baseUrl = "https://goldenmanga.top"
 
     override val lang = "pt-BR"
 
@@ -35,7 +34,7 @@ class GoldenMangas : ParsedHttpSource() {
         .connectTimeout(1, TimeUnit.MINUTES)
         .readTimeout(1, TimeUnit.MINUTES)
         .writeTimeout(1, TimeUnit.MINUTES)
-        .addInterceptor(RateLimitInterceptor(1, 2, TimeUnit.SECONDS))
+        .addInterceptor(RateLimitInterceptor(1, 3, TimeUnit.SECONDS))
         .build()
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder()
@@ -102,12 +101,12 @@ class GoldenMangas : ParsedHttpSource() {
         val secondColumn = infoElement.select("div.col-sm-8").first()
 
         title = secondColumn.select("h2:eq(0)").text().withoutLanguage()
-        author = secondColumn.select("h5:eq(3)")!!.text().withoutLabel()
-        artist = secondColumn.select("h5:eq(4)")!!.text().withoutLabel()
-        genre = secondColumn.select("h5:eq(2) a")
+        author = secondColumn.select("h5:contains(Autor)")!!.text().withoutLabel()
+        artist = secondColumn.select("h5:contains(Artista)")!!.text().withoutLabel()
+        genre = secondColumn.select("h5:contains(Genero) a")
             .filter { it.text().isNotEmpty() }
             .joinToString { it.text() }
-        status = secondColumn.select("h5:eq(5) a").text().toStatus()
+        status = secondColumn.select("h5:contains(Status) a").text().toStatus()
         description = document.select("#manga_capitulo_descricao").text()
         thumbnail_url = firstColumn.attr("abs:src")
     }
@@ -134,9 +133,17 @@ class GoldenMangas : ParsedHttpSource() {
     }
 
     override fun pageListParse(document: Document): List<Page> {
-        val chapterImages = document.select("div.col-sm-12[id^='capitulos_images']").first()
+        val chapterImages = document
+            .select("div.col-sm-12[id^='capitulos_images']:has(img[pag])")
+            .firstOrNull()
 
-        return chapterImages.select("img[pag]")
+        val isNovel = document.select(".block_text_border").firstOrNull() !== null
+
+        if (chapterImages == null && isNovel) {
+            throw Exception(CHAPTER_IS_NOVEL_ERROR)
+        }
+
+        return chapterImages!!.select("img[pag]")
             .mapIndexed { i, element ->
                 Page(i, document.location(), element.attr("abs:src"))
             }
@@ -154,11 +161,8 @@ class GoldenMangas : ParsedHttpSource() {
     }
 
     private fun String.toDate(): Long {
-        return try {
-            DATE_FORMATTER.parse(this.trim())?.time ?: 0L
-        } catch (e: ParseException) {
-            0L
-        }
+        return runCatching { DATE_FORMATTER.parse(trim())?. time }
+            .getOrNull() ?: 0L
     }
 
     private fun String.toStatus() = when (this) {
@@ -178,10 +182,15 @@ class GoldenMangas : ParsedHttpSource() {
         private const val ACCEPT_LANGUAGE = "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7,es;q=0.6,gl;q=0.5"
         private const val REFERER = "https://google.com/"
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36"
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.60 Safari/537.36"
 
         private val FLAG_REGEX = "\\((Pt[-/]br|Scan)\\)".toRegex(RegexOption.IGNORE_CASE)
 
-        private val DATE_FORMATTER by lazy { SimpleDateFormat("(dd/MM/yyyy)", Locale.ENGLISH) }
+        private const val CHAPTER_IS_NOVEL_ERROR =
+            "O capítulo é uma novel em formato de texto e não possui imagens."
+
+        private val DATE_FORMATTER by lazy {
+            SimpleDateFormat("(dd/MM/yyyy)", Locale.ENGLISH)
+        }
     }
 }

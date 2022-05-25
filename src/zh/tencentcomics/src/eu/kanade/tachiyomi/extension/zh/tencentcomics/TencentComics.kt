@@ -28,7 +28,7 @@ import kotlin.collections.ArrayList
 
 class TencentComics : ParsedHttpSource() {
 
-    override val name = "Tencent Comics (ac.qq.com)"
+    override val name = "腾讯动漫"
     // its easier to parse the mobile version of the website
     override val baseUrl = "https://m.ac.qq.com"
 
@@ -37,6 +37,8 @@ class TencentComics : ParsedHttpSource() {
     override val lang = "zh"
 
     override val supportsLatest = true
+
+    override val id: Long = 6353436350537369479
 
     override val client: OkHttpClient = network.cloudflareClient
 
@@ -131,7 +133,6 @@ class TencentComics : ParsedHttpSource() {
     """
 
     override fun pageListParse(document: Document): List<Page> {
-        val duktape = Duktape.create()
         val pages = ArrayList<Page>()
         var html = document.html()
 
@@ -145,7 +146,7 @@ class TencentComics : ParsedHttpSource() {
 
         val raw = html.substringAfterLast("var DATA =").substringBefore("PRELOAD_NUM").trim().replace(Regex("^\'|\',$"), "")
         val decodePrefix = "var raw = \"$raw\"; var nonce = $nonce"
-        val full = duktape.evaluate(decodePrefix + jsDecodeFunction).toString()
+        val full = Duktape.create().use { it.evaluate(decodePrefix + jsDecodeFunction).toString() }
         val chapterData = json.parseToJsonElement(String(Base64.decode(full, Base64.DEFAULT))).jsonObject
 
         if (!chapterData["chapter"]!!.jsonObject["canRead"]!!.jsonPrimitive.boolean) throw Exception("[此章节为付费内容]")

@@ -6,8 +6,8 @@ ext {
     extName = 'MangaMx'
     pkgNameSuffix = 'es.mangamx'
     extClass = '.MangaMx'
-    extVersionCode = 12
-    libVersion = '1.2'
+    extVersionCode = 13
+    isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"

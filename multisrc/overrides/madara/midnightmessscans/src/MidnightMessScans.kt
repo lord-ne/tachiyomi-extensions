@@ -1,39 +1,13 @@
 package eu.kanade.tachiyomi.extension.en.midnightmessscans
 
 import eu.kanade.tachiyomi.multisrc.madara.Madara
-import eu.kanade.tachiyomi.annotations.Nsfw
-import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
-import eu.kanade.tachiyomi.network.asObservable
-import eu.kanade.tachiyomi.source.model.Filter
-import eu.kanade.tachiyomi.source.model.FilterList
-import eu.kanade.tachiyomi.source.model.MangasPage
-import eu.kanade.tachiyomi.source.model.Page
-import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
-import eu.kanade.tachiyomi.source.online.ParsedHttpSource
-import eu.kanade.tachiyomi.util.asJsoup
-import okhttp3.CacheControl
-import okhttp3.FormBody
-import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import okhttp3.Response
 import org.jsoup.nodes.Document
-import org.jsoup.nodes.Element
-import rx.Observable
-import java.text.ParseException
-import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Locale
-import java.util.concurrent.TimeUnit
-import kotlin.math.absoluteValue
-import kotlin.random.Random
 
-@Nsfw
 class MidnightMessScans : Madara("Midnight Mess Scans", "https://midnightmess.org", "en") {
+
+    override fun popularMangaSelector() = "div.page-item-detail:not(:has(a[href*='mangadex.org']))"
 
     override fun mangaDetailsParse(document: Document): SManga {
         val manga = SManga.create()
@@ -95,16 +69,4 @@ class MidnightMessScans : Madara("Midnight Mess Scans", "https://midnightmess.or
 
         return manga
     }
-
-    override fun getGenreList() = listOf(
-        Genre("Bilibili", "bilibili"),
-        Genre("Complete", "complete"),
-        Genre("Manga", "manga"),
-        Genre("Manhwa", "manhwa"),
-        Genre("Manhua", "manhua"),
-        Genre("Shounen ai", "shounen-ai"),
-        Genre("Thiccass", "thiccass"),
-        Genre("Usahime", "usahime"),
-        Genre("Yaoi", "yaoi"),
-    )
 }

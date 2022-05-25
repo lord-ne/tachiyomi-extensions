@@ -5,9 +5,7 @@ ext {
     extName = 'Zerobyw'
     pkgNameSuffix = 'zh.zerobyw'
     extClass = '.Zerobyw'
-    extVersionCode = 1
-    libVersion = '1.2'
+    extVersionCode = 8
 }
 
 apply from: "$rootDir/common.gradle"
-

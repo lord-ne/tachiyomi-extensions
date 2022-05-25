@@ -6,6 +6,7 @@
         <activity
             android:name=".all.cubari.CubariUrlActivity"
             android:excludeFromRecents="true"
+            android:exported="true"
             android:theme="@android:style/Theme.NoDisplay">
             <!-- We need another intent filter so the /a/..* shortcut -->
             <!-- doesn't pollute the cubari one, since they work in any combination -->
@@ -15,13 +16,14 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
+                <data android:host="*.cubari.moe" />
+                <data android:host="cubari.moe" />
+
                 <data
-                    android:host="*cubari.moe"
                     android:pathPattern="/read/..*"
                     android:scheme="https" />
 
                 <data
-                    android:host="*cubari.moe"
                     android:pathPattern="/proxy/..*"
                     android:scheme="https" />
             </intent-filter>
@@ -31,8 +33,10 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
+                <data android:host="*.guya.moe" />
+                <data android:host="guya.moe" />
+
                 <data
-                    android:host="*guya.moe"
                     android:pathPattern="/proxy/..*"
                     android:scheme="https" />
             </intent-filter>
@@ -42,13 +46,14 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
+                <data android:host="*.imgur.com" />
+                <data android:host="imgur.com" />
+
                 <data
-                    android:host="*imgur.com"
                     android:pathPattern="/a/..*"
                     android:scheme="https" />
 
                 <data
-                    android:host="*imgur.com"
                     android:pathPattern="/gallery/..*"
                     android:scheme="https" />
             </intent-filter>

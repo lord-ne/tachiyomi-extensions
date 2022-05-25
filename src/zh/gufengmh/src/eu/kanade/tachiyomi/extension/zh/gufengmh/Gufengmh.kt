@@ -8,6 +8,7 @@ import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
+import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
@@ -17,7 +18,10 @@ class Gufengmh : ParsedHttpSource() {
     override val name: String = "古风漫画网"
     override val lang: String = "zh"
     override val supportsLatest: Boolean = true
-    override val baseUrl: String = "https://m.gufengmh8.com"
+    override val baseUrl: String = "https://m.gufengmh9.com"
+
+    override fun headersBuilder(): Headers.Builder = Headers.Builder()
+        .add("Referer", baseUrl)
 
     // Popular
 

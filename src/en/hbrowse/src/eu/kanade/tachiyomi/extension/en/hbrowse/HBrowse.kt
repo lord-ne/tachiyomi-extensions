@@ -1,8 +1,12 @@
 package eu.kanade.tachiyomi.extension.en.hbrowse
 
-import eu.kanade.tachiyomi.annotations.Nsfw
+import android.app.Application
+import android.content.SharedPreferences
+import androidx.preference.CheckBoxPreference
+import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.Page
@@ -15,13 +19,15 @@ import okhttp3.CookieJar
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
 import java.io.IOException
 
-@Nsfw
-class HBrowse : ParsedHttpSource() {
+class HBrowse : ParsedHttpSource(), ConfigurableSource {
 
     override val name = "HBrowse"
 
@@ -164,12 +170,16 @@ class HBrowse : ParsedHttpSource() {
 
     // Chapters
 
-    override fun chapterListSelector() = "h2:contains(read manga online) + table a:contains(chapter)"
+    override fun chapterListSelector() = if (!hbrowseOnlyChapters()) "h2:contains(read manga online) + table tr" else "h2:contains(read manga online) + table tr:contains(chapter)"
+
+    override fun chapterListParse(response: Response): List<SChapter> {
+        return super.chapterListParse(response).reversed()
+    }
 
     override fun chapterFromElement(element: Element): SChapter {
         return SChapter.create().apply {
-            name = element.text().substringAfter("View ")
-            setUrlWithoutDomain(element.attr("href"))
+            name = element.select("td:first-of-type").text()
+            setUrlWithoutDomain(element.select("a.listLink").attr("href"))
         }
     }
 
@@ -219,4 +229,34 @@ class HBrowse : ParsedHttpSource() {
     )
 
     private fun getAdvTriStateList(groupName: String, vals: List<String>) = vals.map { AdvTriStateFilter(groupName, it) }
+
+    // Preferences
+
+    private val preferences: SharedPreferences by lazy {
+        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
+    }
+
+    companion object {
+        private const val ONLYCHAPTERS_PREF_KEY = "HBROWSE_ONLYCHAPTERS"
+        private const val ONLYCHAPTERS_PREF_TITLE = "Only show chapters"
+        private const val ONLYCHAPTERS_PREF_SUMMARY = "Only show chapters and not the cover/final pages"
+        private const val ONLYCHAPTERS_PREF_DEFAULT_VALUE = false
+    }
+
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        val onlychaptersPref = CheckBoxPreference(screen.context).apply {
+            key = "${ONLYCHAPTERS_PREF_KEY}_$lang"
+            title = ONLYCHAPTERS_PREF_TITLE
+            summary = ONLYCHAPTERS_PREF_SUMMARY
+            setDefaultValue(ONLYCHAPTERS_PREF_DEFAULT_VALUE)
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val checkValue = newValue as Boolean
+                preferences.edit().putBoolean("${ONLYCHAPTERS_PREF_KEY}_$lang", checkValue).commit()
+            }
+        }
+        screen.addPreference(onlychaptersPref)
+    }
+
+    private fun hbrowseOnlyChapters(): Boolean = preferences.getBoolean("${ONLYCHAPTERS_PREF_KEY}_$lang", ONLYCHAPTERS_PREF_DEFAULT_VALUE)
 }

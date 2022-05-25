@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.pt.mundomangakun
 
-import eu.kanade.tachiyomi.annotations.Nsfw
 import eu.kanade.tachiyomi.lib.ratelimit.RateLimitInterceptor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.Filter
@@ -23,7 +22,6 @@ import org.jsoup.nodes.Element
 import uy.kohesive.injekt.injectLazy
 import java.util.concurrent.TimeUnit
 
-@Nsfw
 class MundoMangaKun : ParsedHttpSource() {
 
     override val name = "Mundo Mangá-Kun"
@@ -35,7 +33,7 @@ class MundoMangaKun : ParsedHttpSource() {
     override val supportsLatest = false
 
     override val client: OkHttpClient = network.client.newBuilder()
-        .addInterceptor(RateLimitInterceptor(1, 2, TimeUnit.SECONDS))
+        .addInterceptor(RateLimitInterceptor(1, 3, TimeUnit.SECONDS))
         .build()
 
     override fun headersBuilder(): Headers.Builder = Headers.Builder()
@@ -138,12 +136,34 @@ class MundoMangaKun : ParsedHttpSource() {
     }
 
     override fun pageListParse(document: Document): List<Page> {
-        return document.select("script:containsData(var paginas)").first().data()
+        val pageList = document.select("script:containsData(var paginas)").first().data()
             .substringAfter("var paginas = ")
             .substringBefore("];")
             .let { json.parseToJsonElement("$it]") }
             .jsonArray
             .mapIndexed { i, page -> Page(i, document.location(), page.jsonPrimitive.content) }
+
+        // Check if the pages have exceeded the view limit of Google Drive.
+        val firstPage = pageList[0]
+
+        val hasExceededViewLimit = runCatching {
+            val firstPageRequest = imageRequest(firstPage)
+
+            client.newCall(firstPageRequest).execute().use {
+                val isHtml = it.headers["Content-Type"]!!.contains("text/html")
+
+                GoogleDriveResponse(!isHtml && it.isSuccessful, it.code)
+            }
+        }
+
+        val defaultResponse = GoogleDriveResponse(false, GD_BACKEND_ERROR)
+        val googleDriveResponse = hasExceededViewLimit.getOrDefault(defaultResponse)
+
+        if (!googleDriveResponse.isValid) {
+            throw Exception(googleDriveResponse.errorMessage)
+        }
+
+        return pageList
     }
 
     override fun imageUrlParse(document: Document) = ""
@@ -240,8 +260,25 @@ class MundoMangaKun : ParsedHttpSource() {
         else -> SManga.UNKNOWN
     }
 
+    private data class GoogleDriveResponse(val isValid: Boolean, val code: Int) {
+        val errorMessage: String
+            get() = when (code) {
+                GD_SHARING_RATE_LIMIT_EXCEEDED -> EXCEEDED_GOOGLE_DRIVE_VIEW_LIMIT
+                else -> GOOGLE_DRIVE_UNAVAILABLE
+            }
+    }
+
     companion object {
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.128 Safari/537.36"
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/101.0.4951.41 Safari/537.36"
+
+        private const val EXCEEDED_GOOGLE_DRIVE_VIEW_LIMIT = "Limite de visualizações atingido " +
+            "no Google Drive. Tente novamente mais tarde."
+        private const val GOOGLE_DRIVE_UNAVAILABLE = "O Google Drive está indisponível no " +
+            "momento. Tente novamente mais tarde."
+
+        // Reference: https://developers.google.com/drive/api/guides/handle-errors
+        private const val GD_SHARING_RATE_LIMIT_EXCEEDED = 403
+        private const val GD_BACKEND_ERROR = 500
     }
 }

@@ -93,17 +93,19 @@ abstract class WPComics(
                 addQueryParameter("sort", "0")
             }
 
-            GET(url.toString().replace("www.nettruyen.com/tim-truyen?status=2&", "www.nettruyen.com/truyen-full?"), headers)
+            GET(url.toString().replace("www.nettruyenco.com/tim-truyen?status=2&", "www.nettruyenco.com/truyen-full?"), headers)
         }
     }
 
-    override fun searchMangaSelector() = "div.items div.item div.image a"
+    override fun searchMangaSelector() = "div.items div.item"
 
     override fun searchMangaFromElement(element: Element): SManga {
         return SManga.create().apply {
-            title = element.attr("title")
-            setUrlWithoutDomain(element.attr("href"))
-            thumbnail_url = imageOrNull(element.select("img").first())
+            element.select("h3 a").let {
+                title = it.text()
+                setUrlWithoutDomain(it.attr("abs:href"))
+            }
+            thumbnail_url = imageOrNull(element.select("div.image a img").first())
         }
     }
 

@@ -8,20 +8,20 @@ import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Locale
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
-import org.jsoup.select.Elements
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 
 open class Genkan(
     override val name: String,
     override val baseUrl: String,
-    override val lang: String
+    override val lang: String,
+    val mangaUrlDirectory: String = "/comics",
 ) : ParsedHttpSource() {
 
     override val supportsLatest = true
@@ -31,7 +31,7 @@ open class Genkan(
     override fun popularMangaSelector() = "div.list-item"
 
     override fun popularMangaRequest(page: Int): Request {
-        return GET("$baseUrl/comics?page=$page", headers)
+        return GET("$baseUrl$mangaUrlDirectory?page=$page", headers)
     }
 
     override fun latestUpdatesSelector() = popularMangaSelector()
@@ -80,7 +80,7 @@ open class Genkan(
     // Search
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        return GET("$baseUrl/comics?query=$query", headers)
+        return GET("$baseUrl$mangaUrlDirectory?query=$query", headers)
     }
 
     override fun searchMangaSelector() = popularMangaSelector()
@@ -96,12 +96,14 @@ open class Genkan(
             .let { if (it.startsWith("http")) it else baseUrl + it }
     }
 
-    override fun mangaDetailsParse(document: Document): SManga {
-        return SManga.create().apply {
-            title = document.select("div#content h5").first().text()
-            description = document.select("div.col-lg-9").text().substringAfter("Description ").substringBefore(" Volume")
-            thumbnail_url = styleToUrl(document.select("div.media a").first())
-        }
+    protected var countryOfOriginSelector = ".card.mt-2 .list-item:contains(Country of Origin) .no-wrap"
+    override fun mangaDetailsParse(document: Document) = SManga.create().apply {
+        title = document.select("div#content h5").first().text()
+        description = document.select("div.col-lg-9").text().substringAfter("Description ").substringBefore(" Volume")
+        thumbnail_url = styleToUrl(document.select("div.media a").first())
+        genre = listOfNotNull(
+            document.selectFirst(countryOfOriginSelector)?.let { countryOfOriginToSeriesType(it.text()) }
+        ).joinToString()
     }
 
     override fun chapterListSelector() = "div.col-lg-9 div.flex"
@@ -135,6 +137,13 @@ open class Genkan(
         } else {
             dateFormat.parse(string)?.time ?: 0
         }
+    }
+
+    private fun countryOfOriginToSeriesType(country: String) = when (country) {
+        "South Korea" -> "Manhwa"
+        "Japan" -> "Manga"
+        "China" -> "Manhua"
+        else -> null
     }
 
     // Subtract relative date (e.g. posted 3 days ago)

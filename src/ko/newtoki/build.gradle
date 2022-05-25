@@ -5,8 +5,7 @@ ext {
     extName = 'NewToki / ManaToki'
     pkgNameSuffix = 'ko.newtoki'
     extClass = '.NewTokiFactory'
-    extVersionCode = 21
-    libVersion = '1.2'
+    extVersionCode = 22
 }
 
 dependencies {

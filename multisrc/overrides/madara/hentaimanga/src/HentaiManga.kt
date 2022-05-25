@@ -1,11 +1,9 @@
 package eu.kanade.tachiyomi.extension.en.hentaimanga
 
 import eu.kanade.tachiyomi.multisrc.madara.Madara
-import eu.kanade.tachiyomi.annotations.Nsfw
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-@Nsfw
 class HentaiManga : Madara(
     "Hentai Manga",
     "https://hentaimanga.me",
@@ -13,4 +11,7 @@ class HentaiManga : Madara(
     dateFormat = SimpleDateFormat("MMM d, yyyy", Locale.US)
 ) {
 
+    // The website does not flag the content.
+    override val useLoadMoreSearch = false
+    override val filterNonMangaItems = false
 }

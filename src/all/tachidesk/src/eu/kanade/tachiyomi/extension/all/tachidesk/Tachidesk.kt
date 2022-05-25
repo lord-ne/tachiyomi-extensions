@@ -10,6 +10,7 @@ import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.source.ConfigurableSource
+import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -18,26 +19,40 @@ import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.HttpSource
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import okhttp3.Credentials
+import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import rx.Observable
+import rx.Single
+import rx.android.schedulers.AndroidSchedulers
+import rx.schedulers.Schedulers
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
-import java.lang.RuntimeException
 
 class Tachidesk : ConfigurableSource, HttpSource() {
     override val name = "Tachidesk"
     override val baseUrl by lazy { getPrefBaseUrl() }
+    private val baseLogin by lazy { getPrefBaseLogin() }
+    private val basePassword by lazy { getPrefBasePassword() }
+
     override val lang = "en"
     override val supportsLatest = false
 
     private val json: Json by injectLazy()
 
+    override fun headersBuilder(): Headers.Builder = Headers.Builder().apply {
+        if (basePassword.isNotEmpty() && baseLogin.isNotEmpty()) {
+            val credentials = Credentials.basic(baseLogin, basePassword)
+            add("Authorization", credentials)
+        }
+    }
+
     // ------------- Popular Manga -------------
 
     override fun popularMangaRequest(page: Int): Request =
-        GET("$checkedBaseUrl/api/v1/library")
+        GET("$checkedBaseUrl/api/v1/category/$defaultCategoryId", headers)
 
     override fun popularMangaParse(response: Response): MangasPage =
         MangasPage(
@@ -49,7 +64,7 @@ class Tachidesk : ConfigurableSource, HttpSource() {
     // ------------- Manga Details -------------
 
     override fun mangaDetailsRequest(manga: SManga) =
-        GET("$checkedBaseUrl/api/v1/manga/${manga.url}/?onlineFetch=true")
+        GET("$checkedBaseUrl/api/v1/manga/${manga.url}/?onlineFetch=true", headers)
 
     override fun mangaDetailsParse(response: Response): SManga =
         json.decodeFromString<MangaDataClass>(response.body!!.string()).let { it.toSManga() }
@@ -92,17 +107,100 @@ class Tachidesk : ConfigurableSource, HttpSource() {
         }
     }
 
+    // ------------- Filters & Search -------------
+
+    override fun getFilterList(): FilterList =
+        FilterList(
+            CategorySelect(refreshCategoryList(baseUrl).let { categoryList }),
+            Filter.Header("Press reset to attempt to fetch categories")
+        )
+
+    private var categoryList: List<CategoryDataClass> = emptyList()
+
+    private fun refreshCategoryList(baseUrl: String) {
+        Single.fromCallable {
+            client.newCall(GET("$baseUrl/api/v1/category", headers)).execute()
+        }
+            .subscribeOn(Schedulers.io())
+            .observeOn(AndroidSchedulers.mainThread())
+            .subscribe(
+                { response ->
+                    categoryList = try {
+                        json.decodeFromString<List<CategoryDataClass>>(response.body!!.string())
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                },
+                {}
+            )
+    }
+
+    // ------------- Images -------------
+    override fun imageRequest(page: Page) = GET(page.imageUrl!!, headers)
+
+    // ------------- Settings -------------
+
+    private val preferences: SharedPreferences by lazy {
+        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
+    }
+
+    init {
+        val preferencesMap = mapOf(
+            ADDRESS_TITLE to ADDRESS_DEFAULT,
+            LOGIN_TITLE to LOGIN_DEFAULT,
+            PASSWORD_TITLE to PASSWORD_DEFAULT
+        )
+
+        preferencesMap.forEach { (key, defaultValue) ->
+            val initBase = preferences.getString(key, defaultValue)!!
+
+            if (initBase.isNotBlank()) {
+                refreshCategoryList(initBase)
+            }
+        }
+    }
+
+    private val defaultCategoryId: Int
+        get() = categoryList.firstOrNull()?.id ?: 0
+
+    class CategorySelect(categoryList: List<CategoryDataClass>) :
+        Filter.Select<String>("Category", categoryList.map { it.name }.toTypedArray())
+
+    override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+        if (query.isNotEmpty()) {
+            throw RuntimeException("Only Empty search is supported!")
+        } else {
+            var selectedFilter = defaultCategoryId
+
+            filters.forEach { filter ->
+                when (filter) {
+                    is CategorySelect -> {
+                        selectedFilter = categoryList[filter.state].id
+                    }
+                    else -> {
+                    }
+                }
+            }
+
+            return GET("$checkedBaseUrl/api/v1/category/$selectedFilter", headers)
+        }
+    }
+
+    override fun searchMangaParse(response: Response): MangasPage = popularMangaParse(response)
+
     // ------------- Preferences -------------
     override fun setupPreferenceScreen(screen: PreferenceScreen) {
-        screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, baseUrl))
+        screen.addPreference(screen.editTextPreference(ADDRESS_TITLE, ADDRESS_DEFAULT, baseUrl, false, "i.e. http://192.168.1.115:4567"))
+        screen.addPreference(screen.editTextPreference(LOGIN_TITLE, LOGIN_DEFAULT, baseLogin, false, ""))
+        screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, basePassword, true, ""))
     }
 
     /** boilerplate for [EditTextPreference] */
-    private fun PreferenceScreen.editTextPreference(title: String, default: String, value: String, isPassword: Boolean = false): EditTextPreference {
+    private fun PreferenceScreen.editTextPreference(title: String, default: String, value: String, isPassword: Boolean = false, placeholder: String): EditTextPreference {
         return EditTextPreference(context).apply {
             key = title
             this.title = title
-            summary = value
+            summary = value.ifEmpty { placeholder }
             this.setDefaultValue(default)
             dialogTitle = title
 
@@ -125,15 +223,17 @@ class Tachidesk : ConfigurableSource, HttpSource() {
         }
     }
 
-    private val preferences: SharedPreferences by lazy {
-        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
-    }
-
     private fun getPrefBaseUrl(): String = preferences.getString(ADDRESS_TITLE, ADDRESS_DEFAULT)!!
+    private fun getPrefBaseLogin(): String = preferences.getString(LOGIN_TITLE, LOGIN_DEFAULT)!!
+    private fun getPrefBasePassword(): String = preferences.getString(PASSWORD_TITLE, PASSWORD_DEFAULT)!!
 
     companion object {
-        private const val ADDRESS_TITLE = "Address"
+        private const val ADDRESS_TITLE = "Server URL Address"
         private const val ADDRESS_DEFAULT = ""
+        private const val LOGIN_TITLE = "Login (Basic Auth)"
+        private const val LOGIN_DEFAULT = ""
+        private const val PASSWORD_TITLE = "Password (Basic Auth)"
+        private const val PASSWORD_DEFAULT = ""
     }
 
     // ------------- Not Used -------------
@@ -142,10 +242,6 @@ class Tachidesk : ConfigurableSource, HttpSource() {
 
     override fun latestUpdatesParse(response: Response): MangasPage = throw Exception("Not used")
 
-    override fun searchMangaRequest(page: Int, query: String, filters: FilterList) = throw Exception("Not used")
-
-    override fun searchMangaParse(response: Response): MangasPage = throw Exception("Not used")
-
     override fun pageListParse(response: Response): List<Page> = throw Exception("Not used")
 
     override fun imageUrlParse(response: Response): String = throw Exception("Not used")
@@ -153,12 +249,13 @@ class Tachidesk : ConfigurableSource, HttpSource() {
     // ------------- Util -------------
 
     private fun MangaDataClass.toSManga() = SManga.create().also {
-        it.title = title
         it.url = id.toString()
+        it.title = title
         it.thumbnail_url = "$baseUrl$thumbnailUrl"
         it.artist = artist
         it.author = author
         it.description = description
+        it.genre = genre.joinToString(", ")
         it.status = when (status) {
             "ONGOING" -> SManga.ONGOING
             "COMPLETED" -> SManga.COMPLETED
@@ -175,6 +272,5 @@ class Tachidesk : ConfigurableSource, HttpSource() {
     }
 
     private val checkedBaseUrl: String
-        get(): String = if (baseUrl.isNotEmpty()) baseUrl
-        else throw RuntimeException("Set Tachidesk server url in extension settings")
+        get(): String = baseUrl.ifEmpty { throw RuntimeException("Set Tachidesk server url in extension settings") }
 }

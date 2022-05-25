@@ -143,7 +143,7 @@ abstract class MangaSar(
 
     override fun chapterListRequest(manga: SManga): Request = chapterListPaginatedRequest(manga.url)
 
-    private fun chapterListPaginatedRequest(mangaUrl: String, page: Int = 1): Request {
+    protected open fun chapterListPaginatedRequest(mangaUrl: String, page: Int = 1): Request {
         val mangaId = mangaUrl.substringAfterLast("/")
 
         val newHeaders = apiHeadersBuilder()
@@ -172,10 +172,10 @@ abstract class MangaSar(
             .map(::chapterFromObject)
             .toMutableList()
 
-        var page = result.page + 1
+        var page = result.page!! + 1
         val lastPage = result.totalPages
 
-        while (++page <= lastPage) {
+        while (++page <= lastPage!!) {
             val nextPageRequest = chapterListPaginatedRequest(mangaUrl, page)
             result = client.newCall(nextPageRequest).execute().let {
                 json.decodeFromString(it.body!!.string())
@@ -268,7 +268,7 @@ abstract class MangaSar(
         return chain.proceed(chain.request())
     }
 
-    private fun String.toDate(): Long {
+    protected fun String.toDate(): Long {
         return try {
             DATE_FORMATTER.parse(this)?.time ?: 0L
         } catch (e: ParseException) {

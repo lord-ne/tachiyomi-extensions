@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.multisrc.guya
 
-import generator.ThemeSourceData.SingleLang
 import generator.ThemeSourceData.MultiLang
+import generator.ThemeSourceData.SingleLang
 import generator.ThemeSourceGenerator
 
 class GuyaGenerator : ThemeSourceGenerator {
@@ -15,9 +15,11 @@ class GuyaGenerator : ThemeSourceGenerator {
     override val sources = listOf(
         SingleLang("Guya", "https://guya.moe", "en", overrideVersionCode = 18),
         SingleLang("Danke fürs Lesen", "https://danke.moe", "en", className = "DankeFursLesen"),
-        SingleLang("Colored Council", "https://coloredcouncil.moe", "en"),
         SingleLang("Hachirumi", "https://hachirumi.com", "en", isNsfw = true),
-        MultiLang("Magical Translators", "https://mahoushoujobu.com", listOf("en", "pl")),
+        MultiLang(
+            "Magical Translators", "https://mahoushoujobu.com", listOf("en", "es", "pl"),
+            overrideVersionCode = 1
+        ),
     )
     companion object {
         @JvmStatic

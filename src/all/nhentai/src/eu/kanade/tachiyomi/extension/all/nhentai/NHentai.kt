@@ -37,6 +37,8 @@ open class NHentai(
 
     final override val baseUrl = "https://nhentai.net"
 
+    override val id by lazy { if (lang == "all") 7309872737163460316 else super.id }
+
     override val name = "NHentai"
 
     override val supportsLatest = true
@@ -83,7 +85,7 @@ open class NHentai(
 
     override fun latestUpdatesRequest(page: Int) = GET(if (nhLang.isBlank()) "$baseUrl/?page=$page" else "$baseUrl/language/$nhLang/?page=$page", headers)
 
-    override fun latestUpdatesSelector() = "#content .gallery"
+    override fun latestUpdatesSelector() = "#content .index-container:not(.index-popular) .gallery"
 
     override fun latestUpdatesFromElement(element: Element) = SManga.create().apply {
         setUrlWithoutDomain(element.select("a").attr("href"))
@@ -97,7 +99,7 @@ open class NHentai(
 
     override fun latestUpdatesNextPageSelector() = "#content > section.pagination > a.next"
 
-    override fun popularMangaRequest(page: Int) = GET(if (nhLang.isBlank()) "$baseUrl/?page=$page" else "$baseUrl/language/$nhLang/popular?page=$page", headers)
+    override fun popularMangaRequest(page: Int) = GET(if (nhLang.isBlank()) "$baseUrl/search/?q=\"\"&sort=popular&page=$page" else "$baseUrl/language/$nhLang/popular?page=$page", headers)
 
     override fun popularMangaFromElement(element: Element) = latestUpdatesFromElement(element)
 
@@ -113,7 +115,7 @@ open class NHentai(
                     .asObservableSuccess()
                     .map { response -> searchMangaByIdParse(response, id) }
             }
-            query.isQueryIdNumbers() -> {
+            query.toIntOrNull() != null -> {
                 client.newCall(searchMangaByIdRequest(query))
                     .asObservableSuccess()
                     .map { response -> searchMangaByIdParse(response, query) }
@@ -122,13 +124,8 @@ open class NHentai(
         }
     }
 
-    // The website redirects for any number <= 400000
-    private fun String.isQueryIdNumbers(): Boolean {
-        val int = this.toIntOrNull() ?: return false
-        return int <= 400000
-    }
-
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
+        val fixedQuery = query.ifEmpty { "\"\"" }
         val filterList = if (filters.isEmpty()) getFilterList() else filters
         val nhLangSearch = if (nhLang.isBlank()) "" else "+$nhLang "
         val advQuery = combineQuery(filterList)
@@ -137,13 +134,13 @@ open class NHentai(
 
         if (favoriteFilter?.state == true) {
             val url = "$baseUrl/favorites".toHttpUrlOrNull()!!.newBuilder()
-                .addQueryParameter("q", "$query $advQuery")
+                .addQueryParameter("q", "$fixedQuery $advQuery")
                 .addQueryParameter("page", page.toString())
 
             return GET(url.toString(), headers)
         } else {
             val url = "$baseUrl/search".toHttpUrlOrNull()!!.newBuilder()
-                .addQueryParameter("q", "$query $nhLangSearch$advQuery")
+                .addQueryParameter("q", "$fixedQuery $nhLangSearch$advQuery")
                 .addQueryParameter("page", page.toString())
 
             if (isOkayToSort) {
@@ -241,8 +238,11 @@ open class NHentai(
     override fun chapterListSelector() = throw UnsupportedOperationException("Not used")
 
     override fun pageListParse(document: Document): List<Page> {
+        val script = document.select("script:containsData(media_server)").first().data()
+        val media_server = Regex("""media_server\s*:\s*(\d+)""").find(script)?.groupValues!!.get(1)
+
         return document.select("div.thumbs a > img").mapIndexed { i, img ->
-            Page(i, "", img.attr("abs:data-src").replace("t.nh", "i.nh").replace("t.", "."))
+            Page(i, "", img.attr("abs:data-src").replace("t.nh", "i.nh").replace("t\\d+.nh".toRegex(), "i$media_server.nh").replace("t.", "."))
         }
     }
 

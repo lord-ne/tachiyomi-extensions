@@ -18,7 +18,5 @@ class PrismaScans : Madara(
         .addInterceptor(RateLimitInterceptor(1, 2, TimeUnit.SECONDS))
         .build()
 
-    override val altName = "Nome alternativo: "
-
-    override fun popularMangaSelector() = "div.page-item-detail.manga"
+    override val useNewChapterEndpoint = true
 }

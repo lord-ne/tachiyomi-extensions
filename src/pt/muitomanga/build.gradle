@@ -6,9 +6,8 @@ ext {
     extName = 'Muito Mangá'
     pkgNameSuffix = 'pt.muitomanga'
     extClass = '.MuitoManga'
-    extVersionCode = 3
-    libVersion = '1.2'
-    containsNsfw = true
+    extVersionCode = 5
+    isNsfw = true
 }
 
 dependencies {

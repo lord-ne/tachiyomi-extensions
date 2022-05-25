@@ -5,8 +5,10 @@ import BranchesDto
 import ChunksPageDto
 import LibraryDto
 import MangaDetDto
+import MyLibraryDto
 import PageDto
 import PageWrapperDto
+import PageWrapperDtoNoLimit
 import SeriesWrapperDto
 import TagsDto
 import UserDto
@@ -15,11 +17,9 @@ import android.annotation.TargetApi
 import android.app.Application
 import android.content.SharedPreferences
 import android.os.Build
-import android.text.InputType
 import android.widget.Toast
-import eu.kanade.tachiyomi.lib.dataimage.DataImageInterceptor
+import androidx.preference.ListPreference
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.asObservable
 import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.source.ConfigurableSource
@@ -34,66 +34,83 @@ import kotlinx.serialization.SerializationException
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.put
 import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Interceptor
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.Jsoup
 import rx.Observable
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
+import java.net.URLDecoder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlin.math.absoluteValue
 import kotlin.random.Random
+
 class Remanga : ConfigurableSource, HttpSource() {
+
     override val name = "Remanga"
 
-    override val baseUrl = "https://api.remanga.org"
-
     override val lang = "ru"
-
-    override val supportsLatest = true
-
-    private var token: String = ""
-
-    protected open val userAgentRandomizer = " ${Random.nextInt().absoluteValue}"
-
-    override fun headersBuilder(): Headers.Builder = Headers.Builder()
-        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:77.0) Gecko/20100101 Firefox/78.0$userAgentRandomizer")
-        .add("Referer", "https://www.google.com")
 
     private val preferences: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
     }
 
+    private val baseOrig: String = "https://api.remanga.org"
+    private val baseMirr: String = "https://api.xn--80aaig9ahr.xn--c1avg" // https://реманга.орг
+    private val domain: String? = preferences.getString(DOMAIN_PREF, baseOrig)
+
+    override val baseUrl = domain.toString()
+
+    override val supportsLatest = true
+
+    private val userAgentRandomizer = "${Random.nextInt().absoluteValue}"
+
+    override fun headersBuilder(): Headers.Builder = Headers.Builder()
+        .add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36 Edg/100.0.$userAgentRandomizer")
+        .add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/jxl,image/webp,*/*;q=0.8")
+        .add("Referer", baseUrl.replace("api.", ""))
+
     private fun authIntercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        if (username.isEmpty() or password.isEmpty()) {
-            return chain.proceed(request)
-        }
 
-        if (token.isEmpty()) {
-            token = this.login(chain, username, password)
-        }
+        val cookies = client.cookieJar.loadForRequest(baseUrl.replace("api.", "").toHttpUrl())
+        val authCookie = cookies
+            .firstOrNull { cookie -> cookie.name == USER_COOKIE_NAME }
+            ?.let { cookie -> URLDecoder.decode(cookie.value, "UTF-8") }
+            ?.let { jsonString -> json.decodeFromString<UserDto>(jsonString) }
+            ?: return chain.proceed(request)
+
+        USER_ID = authCookie.id.toString()
         val authRequest = request.newBuilder()
-            .addHeader("Authorization", "bearer $token")
+            .addHeader("Authorization", "bearer ${authCookie.access_token}")
             .build()
         return chain.proceed(authRequest)
     }
-
+    private fun imageContentTypeIntercept(chain: Interceptor.Chain): Response {
+        val originalRequest = chain.request()
+        val response = chain.proceed(originalRequest)
+        val urlRequest = originalRequest.url.toString()
+        val possibleType = urlRequest.substringAfterLast("/").substringBefore("?").split(".")
+        return if (urlRequest.contains("/images/") and (possibleType.size == 2)) {
+            val realType = possibleType[1]
+            val image = response.body?.byteString()?.toResponseBody("image/$realType".toMediaType())
+            response.newBuilder().body(image).build()
+        } else
+            response
+    }
     override val client: OkHttpClient =
         network.client.newBuilder()
-            .addInterceptor(DataImageInterceptor())
+            .addInterceptor { imageContentTypeIntercept(it) }
             .addInterceptor { authIntercept(it) }
             .build()
 
@@ -101,44 +118,51 @@ class Remanga : ConfigurableSource, HttpSource() {
 
     private var branches = mutableMapOf<String, List<BranchesDto>>()
 
-    private fun login(chain: Interceptor.Chain, username: String, password: String): String {
-        val jsonObject = buildJsonObject {
-            put("user", username)
-            put("password", password)
-        }
-        val body = jsonObject.toString().toRequestBody(MEDIA_TYPE)
-        val response = chain.proceed(POST("$baseUrl/api/users/login/", headers, body))
-        if (response.code >= 400) {
-            throw Exception("Failed to login")
-        }
-        val user = json.decodeFromString<SeriesWrapperDto<UserDto>>(response.body!!.string())
-        return user.content.access_token
-    }
-
     override fun popularMangaRequest(page: Int) = GET("$baseUrl/api/search/catalog/?ordering=-rating&count=$count&page=$page", headers)
 
     override fun popularMangaParse(response: Response): MangasPage = searchMangaParse(response)
 
     override fun latestUpdatesRequest(page: Int): Request = GET("$baseUrl/api/titles/last-chapters/?page=$page&count=$count", headers)
 
-    override fun latestUpdatesParse(response: Response): MangasPage = searchMangaParse(response)
-
-    override fun searchMangaParse(response: Response): MangasPage {
-        val page = json.decodeFromString<PageWrapperDto<LibraryDto>>(response.body!!.string())
+    override fun latestUpdatesParse(response: Response): MangasPage {
+        val page = json.decodeFromString<PageWrapperDtoNoLimit<LibraryDto>>(response.body!!.string())
         val mangas = page.content.map {
             it.toSManga()
         }
-        return MangasPage(mangas, page.props.page < page.props.total_pages)
+        return MangasPage(mangas, mangas.isNotEmpty())
+    }
+
+    override fun searchMangaParse(response: Response): MangasPage {
+        if (response.request.url.toString().contains("/bookmarks/")) {
+            val page = json.decodeFromString<PageWrapperDto<MyLibraryDto>>(response.body!!.string())
+            val mangas = page.content.map {
+                it.title.toSManga()
+            }
+
+            return MangasPage(mangas, page.props.page < page.props.total_pages)
+        } else {
+            val page = json.decodeFromString<PageWrapperDto<LibraryDto>>(response.body!!.string())
+            var content = page.content
+            if (preferences.getBoolean(isLib_PREF, false)) {
+                content = content.filter { it.bookmark_type.isNullOrEmpty() }
+            }
+            val mangas = content.map {
+                it.toSManga()
+            }
+            return MangasPage(mangas, page.props.page < page.props.total_pages)
+        }
     }
 
     private fun LibraryDto.toSManga(): SManga =
         SManga.create().apply {
             // Do not change the title name to ensure work with a multilingual catalog!
-            title = en_name
+            title = if (isEng.equals("rus")) rus_name else en_name
             url = "/api/titles/$dir/"
-            thumbnail_url = if (img.high.isNotEmpty()) {
-                "$baseUrl/${img.high}"
-            } else "$baseUrl/${img.mid}"
+            thumbnail_url = if (img.high?.isNotEmpty() == true) {
+                baseUrl + img.high
+            } else if (img.mid?.isNotEmpty() == true) {
+                baseUrl + img.mid
+            } else baseUrl + img.low
         }
 
     private val simpleDateFormat by lazy { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US) }
@@ -153,9 +177,9 @@ class Remanga : ConfigurableSource, HttpSource() {
     }
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
-        var url = "$baseUrl/api/search/catalog/?page=$page".toHttpUrlOrNull()!!.newBuilder()
+        var url = "$baseUrl/api/search/catalog/?page=$page".toHttpUrl().newBuilder()
         if (query.isNotEmpty()) {
-            url = "$baseUrl/api/search/?page=$page".toHttpUrlOrNull()!!.newBuilder()
+            url = "$baseUrl/api/search/?page=$page".toHttpUrl().newBuilder()
             url.addQueryParameter("query", query)
         }
         (if (filters.isEmpty()) getFilterList() else filters).forEach { filter ->
@@ -181,12 +205,25 @@ class Remanga : ConfigurableSource, HttpSource() {
                 }
                 is AgeList -> filter.state.forEach { age ->
                     if (age.state) {
+                        if ((age.id == "2") and (USER_ID == "")) {
+                            throw Exception("Для просмотра 18+ контента необходима авторизация через WebView")
+                        }
                         url.addQueryParameter("age_limit", age.id)
                     }
                 }
                 is GenreList -> filter.state.forEach { genre ->
                     if (genre.state != Filter.TriState.STATE_IGNORE) {
                         url.addQueryParameter(if (genre.isIncluded()) "genres" else "exclude_genres", genre.id)
+                    }
+                }
+                is MyList -> {
+                    if (filter.state > 0) {
+                        if (USER_ID == "") {
+                            throw Exception("Пользователь не найден, необходима авторизация через WebView")
+                        }
+                        val TypeQ = getMyList()[filter.state].id
+                        val UserProfileUrl = "$baseUrl/api/users/$USER_ID/bookmarks/?type=$TypeQ&page=$page".toHttpUrl().newBuilder()
+                        return GET(UserProfileUrl.toString(), headers)
                     }
                 }
             }
@@ -205,10 +242,10 @@ class Remanga : ConfigurableSource, HttpSource() {
         }
     }
 
-    private fun parseType(type: TagsDto): TagsDto {
+    private fun parseType(type: TagsDto): String {
         return when (type.name) {
-            "Западный комикс" -> TagsDto(type.id, "Комикс")
-            else -> type
+            "Западный комикс" -> "Комикс"
+            else -> type.name
         }
     }
     private fun parseAge(age_limit: Int): String {
@@ -237,24 +274,21 @@ class Remanga : ConfigurableSource, HttpSource() {
         val o = this
         return SManga.create().apply {
             // Do not change the title name to ensure work with a multilingual catalog!
-            title = en_name
+            title = if (isEng.equals("rus")) rus_name else en_name
             url = "/api/titles/$dir/"
-            thumbnail_url = "$baseUrl/${img.high}"
+            thumbnail_url = baseUrl + img.high
             var altName = ""
             if (another_name.isNotEmpty()) {
                 altName = "Альтернативные названия:\n" + another_name + "\n\n"
             }
-            this.description = rus_name + "\n" + ratingStar + " " + ratingValue + " (голосов: " + count_rating + ")\n" + altName + Jsoup.parse(o.description).text()
-            genre = (genres + categories + parseType(type)).joinToString { it.name } + ", " + parseAge(age_limit)
+            val mediaNameLanguage = if (isEng.equals("rus")) en_name else rus_name
+            this.description = mediaNameLanguage + "\n" + ratingStar + " " + ratingValue + " (голосов: " + count_rating + ")\n" + altName + Jsoup.parse(o.description).text()
+            genre = parseType(type) + ", " + parseAge(age_limit) + ", " + (genres + categories).joinToString { it.name }
             status = parseStatus(o.status.id)
         }
     }
     private fun titleDetailsRequest(manga: SManga): Request {
-        val titleId = manga.url
-
-        val newHeaders = headersBuilder().build()
-
-        return GET("$baseUrl/$titleId", newHeaders)
+        return GET(baseUrl + manga.url, headers)
     }
 
     // Workaround to allow "Open in browser" use the real URL.
@@ -268,7 +302,7 @@ class Remanga : ConfigurableSource, HttpSource() {
                 }
             }
             .map { response ->
-                (if (warnLogin) manga.apply { description = "Авторизуйтесь для просмотра списка глав" } else mangaDetailsParse(response))
+                (if (warnLogin) manga.apply { description = "Для просмотра 18+ контента необходима авторизация через WebView" } else mangaDetailsParse(response))
                     .apply {
                         initialized = true
                     }
@@ -284,7 +318,7 @@ class Remanga : ConfigurableSource, HttpSource() {
     }
 
     private fun mangaBranches(manga: SManga): List<BranchesDto> {
-        val responseString = client.newCall(GET("$baseUrl/${manga.url}")).execute().body?.string() ?: return emptyList()
+        val responseString = client.newCall(GET(baseUrl + manga.url)).execute().body?.string() ?: return emptyList()
         // manga requiring login return "content" as a JsonArray instead of the JsonObject we expect
         val content = json.decodeFromString<JsonObject>(responseString)["content"]
         return if (content is JsonObject) {
@@ -304,22 +338,31 @@ class Remanga : ConfigurableSource, HttpSource() {
                 return Observable.just(listOf())
             }
             manga.status == SManga.LICENSED -> {
-                Observable.error(Exception("Licensed - No chapters to show"))
+                Observable.error(Exception("Лицензировано - Нет глав"))
             }
             else -> {
-                val branchId = branch.maxByOrNull { selector(it) }!!.id
-                client.newCall(chapterListRequest(branchId))
-                    .asObservableSuccess()
-                    .map { response ->
-                        chapterListParse(response)
-                    }
+                val selectedBranch = branch.maxByOrNull { selector(it) }!!
+                return (1..(selectedBranch.count_chapters / 100 + 1)).map {
+                    val response = chapterListRequest(selectedBranch.id, it)
+                    chapterListParse(response)
+                }.let { Observable.just(it.flatten()) }
             }
         }
     }
 
-    private fun chapterListRequest(branch: Long): Request {
-        return GET("$baseUrl/api/titles/chapters/?branch_id=$branch", headers)
-    }
+    private fun chapterListRequest(branch: Long, page: Number): Response =
+        client.newCall(
+            GET(
+                "$baseUrl/api/titles/chapters/?branch_id=$branch&page=$page&count=100",
+                headers
+            )
+        ).execute().run {
+            if (!isSuccessful) {
+                close()
+                throw Exception("HTTP error $code")
+            }
+            this
+        }
 
     @SuppressLint("DefaultLocale")
     private fun chapterName(book: BookDto): String {
@@ -331,8 +374,11 @@ class Remanga : ConfigurableSource, HttpSource() {
     }
 
     override fun chapterListParse(response: Response): List<SChapter> {
-        val chapters = json.decodeFromString<SeriesWrapperDto<List<BookDto>>>(response.body!!.string())
-        return chapters.content.filter { !it.is_paid or (it.is_bought == true) }.map { chapter ->
+        var chapters = json.decodeFromString<SeriesWrapperDto<List<BookDto>>>(response.body!!.string()).content
+        if (!preferences.getBoolean(PAID_PREF, false)) {
+            chapters = chapters.filter { !it.is_paid or (it.is_bought == true) }
+        }
+        return chapters.map { chapter ->
             SChapter.create().apply {
                 chapter_number = chapter.chapter.split(".").take(2).joinToString(".").toFloat()
                 name = chapterName(chapter)
@@ -347,7 +393,7 @@ class Remanga : ConfigurableSource, HttpSource() {
 
     private fun fixLink(link: String): String {
         if (!link.startsWith("http")) {
-            return "https://remanga.org$link"
+            return baseUrl.replace("api.", "") + link
         }
         return link
     }
@@ -422,7 +468,8 @@ class Remanga : ConfigurableSource, HttpSource() {
         CategoryList(getCategoryList()),
         TypeList(getTypeList()),
         StatusList(getStatusList()),
-        AgeList(getAgeList())
+        AgeList(getAgeList()),
+        MyList(MyStatus)
     )
 
     private class OrderBy : Filter.Sort(
@@ -602,30 +649,35 @@ class Remanga : ConfigurableSource, HttpSource() {
         SearchFilter("юри", "41"),
         SearchFilter("яой", "43")
     )
+    private class MyList(favorites: Array<String>) : Filter.Select<String>("Закладки (только)", favorites)
+    private data class MyListUnit(val name: String, val id: String)
+    private val MyStatus = getMyList().map {
+        it.name
+    }.toTypedArray()
 
+    private fun getMyList() = listOf(
+        MyListUnit("Каталог", "-"),
+        MyListUnit("Читаю", "0"),
+        MyListUnit("Буду читать", "1"),
+        MyListUnit("Прочитано", "2"),
+        MyListUnit("Отложено", "4"),
+        MyListUnit("Брошено ", "3"),
+        MyListUnit("Не интересно ", "5")
+    )
+    private var isEng: String? = preferences.getString(LANGUAGE_PREF, "eng")
     override fun setupPreferenceScreen(screen: androidx.preference.PreferenceScreen) {
-        screen.addPreference(screen.editTextPreference(USERNAME_TITLE, USERNAME_DEFAULT, username))
-        screen.addPreference(screen.editTextPreference(PASSWORD_TITLE, PASSWORD_DEFAULT, password, true))
-    }
-
-    private fun androidx.preference.PreferenceScreen.editTextPreference(title: String, default: String, value: String, isPassword: Boolean = false): androidx.preference.EditTextPreference {
-        return androidx.preference.EditTextPreference(context).apply {
-            key = title
-            this.title = title
-            summary = value
-            this.setDefaultValue(default)
-            dialogTitle = title
-
-            if (isPassword) {
-                if (value.isNotBlank()) { summary = "*****" }
-                setOnBindEditTextListener {
-                    it.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-                }
-            }
+        val domainPref = ListPreference(screen.context).apply {
+            key = DOMAIN_PREF
+            title = DOMAIN_PREF_Title
+            entries = arrayOf("Основной (remanga.org)", "Зеркало (реманга.орг)")
+            entryValues = arrayOf(baseOrig, baseMirr)
+            summary = "%s"
+            setDefaultValue(baseOrig)
             setOnPreferenceChangeListener { _, newValue ->
                 try {
-                    val res = preferences.edit().putString(title, newValue as String).commit()
-                    Toast.makeText(context, "Перезапустите Tachiyomi, чтобы применить новую настройку.", Toast.LENGTH_LONG).show()
+                    val res = preferences.edit().putString(DOMAIN_PREF, newValue as String).commit()
+                    val warning = "Для смены домена необходимо перезапустить приложение с полной остановкой."
+                    Toast.makeText(screen.context, warning, Toast.LENGTH_LONG).show()
                     res
                 } catch (e: Exception) {
                     e.printStackTrace()
@@ -633,21 +685,67 @@ class Remanga : ConfigurableSource, HttpSource() {
                 }
             }
         }
+        val titleLanguagePref = ListPreference(screen.context).apply {
+            key = LANGUAGE_PREF
+            title = LANGUAGE_PREF_Title
+            entries = arrayOf("Английский", "Русский")
+            entryValues = arrayOf("eng", "rus")
+            summary = "%s"
+            setDefaultValue("eng")
+            setOnPreferenceChangeListener { _, newValue ->
+                val titleLanguage = preferences.edit().putString(LANGUAGE_PREF, newValue as String).commit()
+                val warning = "Если язык обложки не изменился очистите базу данных в приложении (Настройки -> Дополнительно -> Очистить базу данных)"
+                Toast.makeText(screen.context, warning, Toast.LENGTH_LONG).show()
+                titleLanguage
+            }
+        }
+        val paidChapterShow = androidx.preference.CheckBoxPreference(screen.context).apply {
+            key = PAID_PREF
+            title = PAID_PREF_Title
+            summary = "Показывает не купленные главы(может вызвать ошибки при обновлении/автозагрузке)"
+            setDefaultValue(false)
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val checkValue = newValue as Boolean
+                preferences.edit().putBoolean(key, checkValue).commit()
+            }
+        }
+        val bookmarksHide = androidx.preference.CheckBoxPreference(screen.context).apply {
+            key = isLib_PREF
+            title = isLib_PREF_Title
+            summary = "Скрывает мангу находящуюся в закладках пользователя на сайте."
+            setDefaultValue(false)
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val checkValue = newValue as Boolean
+                preferences.edit().putBoolean(key, checkValue).commit()
+            }
+        }
+        screen.addPreference(domainPref)
+        screen.addPreference(titleLanguagePref)
+        screen.addPreference(paidChapterShow)
+        screen.addPreference(bookmarksHide)
     }
 
-    private fun getPrefUsername(): String = preferences.getString(USERNAME_TITLE, USERNAME_DEFAULT)!!
-    private fun getPrefPassword(): String = preferences.getString(PASSWORD_TITLE, PASSWORD_DEFAULT)!!
-
     private val json: Json by injectLazy()
-    private val username by lazy { getPrefUsername() }
-    private val password by lazy { getPrefPassword() }
 
     companion object {
-        private val MEDIA_TYPE = "application/json; charset=utf-8".toMediaTypeOrNull()
-        private const val USERNAME_TITLE = "Username"
-        private const val USERNAME_DEFAULT = ""
-        private const val PASSWORD_TITLE = "Password"
-        private const val PASSWORD_DEFAULT = ""
+        private var USER_ID = ""
+
+        private const val USER_COOKIE_NAME = "user"
+
         const val PREFIX_SLUG_SEARCH = "slug:"
+
+        private const val DOMAIN_PREF = "REMangaDomain"
+        private const val DOMAIN_PREF_Title = "Выбор домена"
+
+        private const val LANGUAGE_PREF = "ReMangaTitleLanguage"
+        private const val LANGUAGE_PREF_Title = "Выбор языка на обложке"
+
+        private const val PAID_PREF = "PaidChapter"
+        private const val PAID_PREF_Title = "Показывать платные главы"
+
+        private const val isLib_PREF = "LibBookmarks"
+        private const val isLib_PREF_Title = "Скрыть «Закладки»"
     }
 }

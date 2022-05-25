@@ -1,8 +1,12 @@
 package eu.kanade.tachiyomi.extension.zh.wuqimanga
 
-import com.google.gson.Gson
+import android.app.Application
+import android.content.SharedPreferences
+import androidx.preference.ListPreference
+import androidx.preference.PreferenceScreen
 import com.squareup.duktape.Duktape
 import eu.kanade.tachiyomi.network.GET
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
@@ -14,23 +18,29 @@ import okhttp3.Request
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 
-class WuqiManga : ParsedHttpSource() {
+class WuqiManga : ParsedHttpSource(), ConfigurableSource {
 
     override val name = "57漫画"
-    override val baseUrl = "http://www.wuqimh.com"
+    override val baseUrl = "http://www.wuqimh.net"
     override val lang = "zh"
-    override val supportsLatest = false
-    private val imageServer = "http://images.lancaier.com"
+    override val supportsLatest = true
+    // Server list can be found from baseUrl/templates/wuqi/default/scripts/configs.js?v=1.0.3
+    private val imageServer = arrayOf("http://imagesold.benzidui.com", "http://images.tingliu.cc")
 
-    override fun latestUpdatesRequest(page: Int) = throw Exception("Not used")
-    override fun latestUpdatesNextPageSelector() = throw Exception("Not used")
-    override fun latestUpdatesSelector() = throw Exception("Not used")
-    override fun latestUpdatesFromElement(element: Element) = throw Exception("Not used")
+    private val preferences: SharedPreferences =
+        Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
 
-    override fun popularMangaRequest(page: Int) = GET("$baseUrl/list/area-日本-order-hits", headers)
+    override fun latestUpdatesRequest(page: Int) = GET("$baseUrl/list/order-addtime-p-$page", headers)
+    override fun latestUpdatesNextPageSelector() = popularMangaNextPageSelector()
+    override fun latestUpdatesSelector() = popularMangaSelector()
+    override fun latestUpdatesFromElement(element: Element) = popularMangaFromElement(element)
+
+    override fun popularMangaRequest(page: Int) = GET("$baseUrl/list/order-hits-p-$page", headers)
     override fun popularMangaSelector() = "ul#contList > li"
-    override fun popularMangaNextPageSelector(): String? = null
+    override fun popularMangaNextPageSelector(): String? = "span.pager > a.prev:contains(下一页)"
 
     override fun popularMangaFromElement(element: Element): SManga {
         val coverEl = element.select("a img").first()
@@ -55,7 +65,7 @@ class WuqiManga : ParsedHttpSource() {
         return GET("$baseUrl/search/q_$query-p-$page", headers)
     }
 
-    override fun searchMangaNextPageSelector() = "div.book-result > div > span > a.prev"
+    override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
     override fun searchMangaSelector() = "div.book-result li.cf"
     override fun searchMangaFromElement(element: Element): SManga {
         val manga = SManga.create()
@@ -80,11 +90,7 @@ class WuqiManga : ParsedHttpSource() {
         return manga
     }
 
-    override fun mangaDetailsRequest(manga: SManga) = GET("$baseUrl/${manga.url}", headers)
-    override fun chapterListRequest(manga: SManga) = mangaDetailsRequest(manga)
     override fun chapterListSelector() = throw Exception("Not used")
-
-    override fun pageListRequest(chapter: SChapter) = GET("$baseUrl/${chapter.url}", headers)
 
     override fun headersBuilder() = Headers.Builder().add("Referer", "$baseUrl/")
         .set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36")
@@ -100,7 +106,7 @@ class WuqiManga : ParsedHttpSource() {
 
     override fun mangaDetailsParse(document: Document): SManga {
         val manga = SManga.create()
-        manga.description = ""
+        manga.description = document.selectFirst("div#intro-all > p").text()
         manga.title = document.select(".book-title h1").text().trim()
         manga.thumbnail_url = document.select(".hcover img").attr("src")
         for (element in document.select("ul.detail-list li span")) {
@@ -110,14 +116,6 @@ class WuqiManga : ParsedHttpSource() {
             }
         }
         return manga
-    }
-
-    override fun imageRequest(page: Page): Request {
-        return GET(page.imageUrl.toString(), headers)
-    }
-
-    override fun imageUrlRequest(page: Page): Request {
-        return GET(page.imageUrl.toString(), headers)
     }
 
     override fun imageUrlParse(document: Document): String = ""
@@ -137,8 +135,6 @@ class WuqiManga : ParsedHttpSource() {
         return chapters
     }
 
-    private val gson = Gson()
-
     override fun pageListParse(document: Document): List<Page> {
         val html = document.html()
         val packed = Regex("eval(.*?)\\n").find(html)?.groups?.get(1)?.value
@@ -147,13 +143,25 @@ class WuqiManga : ParsedHttpSource() {
         }
         val re2 = Regex("""\{.*\}""")
         val imgJsonStr = re2.find(result)?.groups?.get(0)?.value
-        val imageJson: Comic = gson.fromJson(imgJsonStr, Comic::class.java)
-
-        return imageJson.fs!!.mapIndexed { i, imgStr ->
-            val imgurl = "$imageServer$imgStr"
-            Page(i, "", imgurl)
+        val server = preferences.getString("IMAGE_SERVER", imageServer[0])
+        // The website is using single quotes in json, so kotlinx.serialization doesn't work
+        return imgJsonStr!!.substringAfter("'fs':['").substringBefore("'],").split("','").mapIndexed { index, it ->
+            Page(index, "", if (it.startsWith("http")) it else "$server$it")
         }
     }
 
-    override fun getFilterList() = FilterList()
+    override fun setupPreferenceScreen(screen: PreferenceScreen) {
+        ListPreference(screen.context).apply {
+            key = "IMAGE_SERVER"
+            title = "线路"
+            summary = "需要清除章节缓存以生效"
+            entries = arrayOf("主线", "备用")
+            entryValues = imageServer
+            setDefaultValue(imageServer[0])
+
+            setOnPreferenceChangeListener { _, newValue ->
+                preferences.edit().putString(key, newValue as String).commit()
+            }
+        }.let(screen::addPreference)
+    }
 }

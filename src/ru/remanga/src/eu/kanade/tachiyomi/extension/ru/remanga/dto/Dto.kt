@@ -14,9 +14,9 @@ data class BranchesDto(
 
 @Serializable
 data class ImgDto(
-    val high: String,
-    val mid: String,
-    val low: String
+    val high: String? = null,
+    val mid: String? = null,
+    val low: String? = null
 )
 
 @Serializable
@@ -25,7 +25,12 @@ data class LibraryDto(
     val en_name: String,
     val rus_name: String,
     val dir: String,
-    val img: ImgDto
+    val img: ImgDto,
+    val bookmark_type: String? = null
+)
+@Serializable
+data class MyLibraryDto(
+    val title: LibraryDto
 )
 
 @Serializable
@@ -56,7 +61,6 @@ data class MangaDetDto(
 
 @Serializable
 data class PropsDto(
-    val total_items: Int,
     val total_pages: Int,
     val page: Int
 )
@@ -65,6 +69,11 @@ data class PropsDto(
 data class PageWrapperDto<T>(
     val content: List<T>,
     val props: PropsDto
+)
+
+@Serializable
+data class PageWrapperDtoNoLimit<T>(
+    val content: List<T>
 )
 
 @Serializable
@@ -109,5 +118,6 @@ data class ChunksPageDto(
 
 @Serializable
 data class UserDto(
+    val id: Long,
     val access_token: String
 )

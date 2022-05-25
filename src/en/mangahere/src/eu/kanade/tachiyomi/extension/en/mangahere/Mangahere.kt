@@ -11,6 +11,7 @@ import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Cookie
 import okhttp3.CookieJar
+import okhttp3.Headers
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -33,6 +34,9 @@ class Mangahere : ParsedHttpSource() {
     override val lang = "en"
 
     override val supportsLatest = true
+
+    override fun headersBuilder(): Headers.Builder = Headers.Builder()
+        .add("Referer", baseUrl)
 
     override val client: OkHttpClient = super.client.newBuilder()
         .cookieJar(
@@ -93,6 +97,10 @@ class Mangahere : ParsedHttpSource() {
             when (filter) {
                 is TypeList -> url.addEncodedQueryParameter("type", types[filter.values[filter.state]].toString())
                 is CompletionList -> url.addEncodedQueryParameter("st", filter.state.toString())
+                is RatingList -> {
+                    url.addEncodedQueryParameter("rating_method", "gt")
+                    url.addEncodedQueryParameter("rating", filter.state.toString())
+                }
                 is GenreList -> {
                     val includeGenres = mutableSetOf<Int>()
                     val excludeGenres = mutableSetOf<Int>()
@@ -105,6 +113,18 @@ class Mangahere : ParsedHttpSource() {
                         addEncodedQueryParameter("nogenres", excludeGenres.joinToString(","))
                     }
                 }
+                is ArtistFilter -> {
+                    url.addEncodedQueryParameter("artist_method", "cw")
+                    url.addEncodedQueryParameter("artist", filter.state)
+                }
+                is AuthorFilter -> {
+                    url.addEncodedQueryParameter("author_method", "cw")
+                    url.addEncodedQueryParameter("author", filter.state)
+                }
+                is YearFilter -> {
+                    url.addEncodedQueryParameter("released_method", "eq")
+                    url.addEncodedQueryParameter("released", filter.state)
+                }
             }
         }
 
@@ -114,14 +134,6 @@ class Mangahere : ParsedHttpSource() {
             addEncodedQueryParameter("sort", null)
             addEncodedQueryParameter("stype", 1.toString())
             addEncodedQueryParameter("name", null)
-            addEncodedQueryParameter("author_method", "cw")
-            addEncodedQueryParameter("author", null)
-            addEncodedQueryParameter("artist_method", "cw")
-            addEncodedQueryParameter("artist", null)
-            addEncodedQueryParameter("rating_method", "eq")
-            addEncodedQueryParameter("rating", null)
-            addEncodedQueryParameter("released_method", "eq")
-            addEncodedQueryParameter("released", null)
         }
 
         return GET(url.toString(), headers)
@@ -142,7 +154,6 @@ class Mangahere : ParsedHttpSource() {
     override fun mangaDetailsParse(document: Document): SManga {
         val manga = SManga.create()
         manga.author = document.select(".detail-info-right-say > a")?.first()?.text()
-        manga.artist = ""
         manga.genre = document.select(".detail-info-right-tag-list > a")?.joinToString { it.text() }
         manga.description = document.select(".fullcontent")?.first()?.text()
         manga.thumbnail_url = document.select("img.detail-info-cover-img")?.first()
@@ -249,13 +260,11 @@ class Mangahere : ParsedHttpSource() {
             val pageBase = link.substring(0, link.lastIndexOf("/"))
 
             IntRange(1, pagesNumber).map { i ->
-
                 val pageLink = "$pageBase/chapterfun.ashx?cid=$chapterId&page=$i&key=$secretKey"
 
                 var responseText = ""
 
                 for (tr in 1..3) {
-
                     val request = Request.Builder()
                         .url(pageLink)
                         .addHeader("Referer", link)
@@ -294,7 +303,6 @@ class Mangahere : ParsedHttpSource() {
     }
 
     private fun extractSecretKey(html: String, duktape: Duktape): String {
-
         val secretKeyScriptLocation = html.indexOf("eval(function(p,a,c,k,e,d)")
         val secretKeyScriptEndLocation = html.indexOf("</script>", secretKeyScriptLocation)
         val secretKeyScript = html.substring(secretKeyScriptLocation, secretKeyScriptEndLocation).removePrefix("eval")
@@ -316,14 +324,23 @@ class Mangahere : ParsedHttpSource() {
 
     private class Genre(title: String, val id: Int) : Filter.TriState(title)
 
-    private class TypeList(types: Array<String>) : Filter.Select<String>("Type", types, 0)
+    private class TypeList(types: Array<String>) : Filter.Select<String>("Type", types, 1)
     private class CompletionList(completions: Array<String>) : Filter.Select<String>("Completed series", completions, 0)
+    private class RatingList(ratings: Array<String>) : Filter.Select<String>("Minimum rating", ratings, 0)
     private class GenreList(genres: List<Genre>) : Filter.Group<Genre>("Genres", genres)
+
+    private class ArtistFilter(name: String) : Filter.Text(name)
+    private class AuthorFilter(name: String) : Filter.Text(name)
+    private class YearFilter(name: String) : Filter.Text(name)
 
     override fun getFilterList() = FilterList(
         TypeList(types.keys.toList().sorted().toTypedArray()),
-        CompletionList(completions),
-        GenreList(genres())
+        ArtistFilter("Artist"),
+        AuthorFilter("Author"),
+        GenreList(genres()),
+        RatingList(ratings),
+        YearFilter("Year released"),
+        CompletionList(completions)
     )
 
     private val types = hashMapOf(
@@ -338,6 +355,7 @@ class Mangahere : ParsedHttpSource() {
     )
 
     private val completions = arrayOf("Either", "No", "Yes")
+    private val ratings = arrayOf("No Stars", "1 Star", "2 Stars", "3 Stars", "4 Stars", "5 Stars")
 
     private fun genres() = arrayListOf(
         Genre("Action", 1),

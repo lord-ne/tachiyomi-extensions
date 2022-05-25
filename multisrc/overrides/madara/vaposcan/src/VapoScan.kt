@@ -9,16 +9,17 @@ import java.util.concurrent.TimeUnit
 
 class VapoScan : Madara(
     "Vapo Scan",
-    "https://vaposcan.net",
+    "https://vaposcans.com",
     "pt-BR",
-    SimpleDateFormat("dd 'de' MMMMM 'de' yyyy", Locale("pt", "BR"))
+    SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR"))
 ) {
+
+    // Source changed from WpMangaStream to Madara.
+    override val versionId = 2
 
     override val client: OkHttpClient = super.client.newBuilder()
         .addInterceptor(RateLimitInterceptor(1, 2, TimeUnit.SECONDS))
         .build()
 
-    override val altName: String = "Nome alternativo: "
-
-    override fun popularMangaSelector() = "div.page-item-detail.manga"
+    override val useNewChapterEndpoint = true
 }

@@ -6,37 +6,24 @@
         <activity
             android:name=".all.mangadex.MangadexUrlActivity"
             android:excludeFromRecents="true"
+            android:exported="true"
             android:theme="@android:style/Theme.NoDisplay">
-            <intent-filter>
+            <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
 
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
-                <data
-                    android:host="mangadex.org"
-                    android:pathPattern="/title/..*"
-                    android:scheme="https" />
-                <data
-                    android:host="www.mangadex.org"
-                    android:pathPattern="/title/..*"
-                    android:scheme="https" />
-                <data
-                    android:host="mangadex.org"
-                    android:pathPattern="/manga/..*"
-                    android:scheme="https" />
-                <data
-                    android:host="www.mangadex.org"
-                    android:pathPattern="/manga/..*"
-                    android:scheme="https" />
-                <data
-                    android:host="mangadex.org"
-                    android:pathPattern="/chapter/..*"
-                    android:scheme="https" />
-                <data
-                    android:host="www.mangadex.org"
-                    android:pathPattern="/chapter/..*"
-                    android:scheme="https" />
+                <data android:host="mangadex.org" />
+                <data android:scheme="https" />
+
+                <data android:pathPattern="/title/..*" />
+                <data android:pathPattern="/manga/..*" />
+                <data android:pathPattern="/chapter/..*" />
+                <data android:pathPattern="/group/..*" />
+                <data android:pathPattern="/author/..*" />
+                <data android:pathPattern="/user/..*" />
+                <data android:pathPattern="/list/..*" />
             </intent-filter>
         </activity>
     </application>

@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.es.doujinhentai
 
-import eu.kanade.tachiyomi.annotations.Nsfw
 import eu.kanade.tachiyomi.multisrc.madara.Madara
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.Filter
@@ -12,8 +11,16 @@ import org.jsoup.nodes.Element
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-@Nsfw
-class DoujinHentai : Madara("DoujinHentai", "https://doujinhentai.net", "es", SimpleDateFormat("d MMM. yyyy", Locale.ENGLISH)) {
+class DoujinHentai : Madara(
+    "DoujinHentai",
+    "https://doujinhentai.net",
+    "es",
+    SimpleDateFormat("d MMM. yyyy", Locale.ENGLISH)
+) {
+
+    override val useLoadMoreSearch = false
+    override val fetchGenres = false
+
     override fun popularMangaRequest(page: Int): Request = GET("$baseUrl/lista-manga-hentai?orderby=views&page=$page", headers)
     override fun popularMangaSelector() = "div.col-md-3 a"
     override fun popularMangaFromElement(element: Element): SManga {
@@ -60,6 +67,7 @@ class DoujinHentai : Madara("DoujinHentai", "https://doujinhentai.net", "es", Si
     override fun searchMangaNextPageSelector() = popularMangaNextPageSelector()
     override fun chapterListSelector() = "ul.main.version-chap > li.wp-manga-chapter:not(:last-child)" // removing empty li
     override val pageListParseSelector = "div#all > img.img-responsive"
+
     override fun getFilterList() = FilterList(
         Filter.Header("Solo funciona si la consulta está en blanco"),
         GenreSelectFilter()

@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.en.manhuamanga
 
-import eu.kanade.tachiyomi.annotations.Nsfw
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.source.model.Filter
@@ -12,12 +11,11 @@ import eu.kanade.tachiyomi.source.online.ParsedHttpSource
 import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
-import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
-@Nsfw
 class ManhuaManga : ParsedHttpSource() {
     override val name = "ManhuaManga.net"
     override val baseUrl = "https://manhuamanga.net"
@@ -71,7 +69,7 @@ class ManhuaManga : ParsedHttpSource() {
     protected fun getXhrChapters(mangaId: String): Document {
         val xhrHeaders = headersBuilder().add("Content-Type: application/x-www-form-urlencoded; charset=UTF-8")
             .build()
-        val body = RequestBody.create(null, "action=tw_ajax&type=list_chap&id=$mangaId")
+        val body = "action=tw_ajax&type=list_chap&id=$mangaId".toRequestBody(null)
         return client.newCall(POST("$baseUrl/wp-admin/admin-ajax.php", xhrHeaders, body)).execute().asJsoup()
     }
 

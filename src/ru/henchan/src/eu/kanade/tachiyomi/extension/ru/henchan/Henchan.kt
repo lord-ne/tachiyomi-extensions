@@ -1,13 +1,6 @@
 package eu.kanade.tachiyomi.extension.ru.henchan
 
 import android.annotation.SuppressLint
-import com.github.salomonbrys.kotson.array
-import com.github.salomonbrys.kotson.fromJson
-import com.github.salomonbrys.kotson.string
-import com.google.gson.Gson
-import com.google.gson.JsonArray
-import com.google.gson.JsonObject
-import eu.kanade.tachiyomi.annotations.Nsfw
 import eu.kanade.tachiyomi.lib.ratelimit.RateLimitInterceptor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservable
@@ -30,14 +23,11 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@Nsfw
 class Henchan : ParsedHttpSource() {
 
     override val name = "Henchan"
 
-    override val baseUrl = "https://hchan.me"
-
-    private val exhentaiBaseUrl = "http://exhentai-dono.me"
+    override val baseUrl = "https://xxxx.hentaichan.live"
 
     override val lang = "ru"
 
@@ -70,6 +60,7 @@ class Henchan : ParsedHttpSource() {
                                 genres += (if (f.isExcluded()) "-" else "") + f.id + '+'
                             }
                     }
+                    else -> return@forEach
                 }
             }
 
@@ -79,6 +70,7 @@ class Henchan : ParsedHttpSource() {
                         is OrderBy -> {
                             order = filter.toUriPartWithGenres()
                         }
+                        else -> return@forEach
                     }
                 }
                 "$baseUrl/tags/${genres.dropLast(1)}&sort=manga$order?offset=${20 * (page - 1)}"
@@ -88,6 +80,7 @@ class Henchan : ParsedHttpSource() {
                         is OrderBy -> {
                             order = filter.toUriPartWithoutGenres()
                         }
+                        else -> return@forEach
                     }
                 }
                 "$baseUrl/$order?offset=${20 * (page - 1)}"
@@ -96,13 +89,13 @@ class Henchan : ParsedHttpSource() {
         return GET(url, headers)
     }
 
-    override fun popularMangaSelector() = ".content_row"
+    override fun popularMangaSelector() = "div.content_row"
 
     override fun latestUpdatesSelector() = popularMangaSelector()
 
     override fun searchMangaSelector() = ".content_row:not(:has(div.item:containsOwn(Тип)))"
 
-    private fun String.getHQThumbnail(): String? {
+    private fun String.getHQThumbnail(): String {
         val isExHenManga = this.contains("/manganew_thumbs_blur/")
         val regex = "(?<=/)manganew_thumbs\\w*?(?=/)".toRegex(RegexOption.IGNORE_CASE)
         return this.replace(regex, "showfull_retina/manga")
@@ -113,11 +106,10 @@ class Henchan : ParsedHttpSource() {
     override fun popularMangaFromElement(element: Element): SManga {
         val manga = SManga.create()
         manga.thumbnail_url = element.select("img").first().attr("src").getHQThumbnail()
-
-        val urlElem = element.select("h2 > a").first()
-        manga.setUrlWithoutDomain(urlElem.attr("href"))
-        manga.title = urlElem.text()
-
+        manga.title = element.attr("title")
+        element.select("h2 > a").first().let {
+            manga.setUrlWithoutDomain(it.attr("href"))
+        }
         return manga
     }
 
@@ -135,9 +127,10 @@ class Henchan : ParsedHttpSource() {
 
     override fun mangaDetailsParse(document: Document): SManga {
         val manga = SManga.create()
+        manga.title = document.select("title").text().substringBefore(" »")
         manga.author = document.select(".row .item2 h2")[1].text()
         manga.genre = document.select(".sidetag > a:eq(2)").joinToString { it.text() }
-        manga.description = document.select("#description").text()
+        manga.description = document.select("#description").text().trim()
         manga.thumbnail_url = document.select("img#cover").attr("abs:src").getHQThumbnail()
         return manga
     }
@@ -247,28 +240,30 @@ class Henchan : ParsedHttpSource() {
 
     override fun pageListRequest(chapter: SChapter): Request {
         val url = if (chapter.url.contains("/manga/")) {
-            exhentaiBaseUrl + chapter.url.replace("/manga/", "/online/") + "?development_access=true"
+            baseUrl + chapter.url.replace("/manga/", "/online/")
         } else {
             baseUrl + chapter.url
         }
         return GET(url, Headers.Builder().add("Accept", "image/webp,image/apng").build())
     }
+    override fun pageListParse(response: Response): List<Page> {
+        val html = response.body!!.string()
+        val prefix = "fullimg\": ["
+        val beginIndex = html.indexOf(prefix) + prefix.length
+        val endIndex = html.indexOf("]", beginIndex)
+        val trimmedHtml = html.substring(beginIndex, endIndex)
+            .replace("\"", "")
+            .replace("\'", "")
 
-    override fun imageUrlParse(document: Document) = throw Exception("Not Used")
-
-    private val gson = Gson()
-
-    private fun Document.parseJsonArray(): JsonArray {
-        val imgScript = this.select("script:containsData(fullimg)").first().toString()
-        val imgString = imgScript.substring(imgScript.indexOf('{'), imgScript.lastIndexOf('}') + 1).replace("&quot;", "\"")
-        return gson.fromJson<JsonObject>(imgString)["fullimg"].array
+        val pageUrls = trimmedHtml.split(", ")
+        return pageUrls.mapIndexed { i, url -> Page(i, "", url) }
     }
 
     override fun pageListParse(document: Document): List<Page> {
-        return document.parseJsonArray().mapIndexed { index, imageUrl ->
-            Page(index, imageUrl = imageUrl.string.replace(".gif.webp", ".gif"))
-        }
+        throw Exception("Not used")
     }
+
+    override fun imageUrlParse(document: Document) = ""
 
     private class Genre(val id: String, @SuppressLint("DefaultLocale") name: String = id.replace('_', ' ').capitalize()) : Filter.TriState(name)
     private class GenreList(genres: List<Genre>) : Filter.Group<Genre>("Тэги", genres)

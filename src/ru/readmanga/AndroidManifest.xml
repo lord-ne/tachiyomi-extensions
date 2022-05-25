@@ -6,6 +6,7 @@
         <activity
             android:name=".ru.readmanga.ReadmangaActivity"
             android:excludeFromRecents="true"
+            android:exported="true"
             android:theme="@android:style/Theme.NoDisplay">
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -15,7 +16,7 @@
 
                 <!-- ReadmangaActivity sites can be added here. -->
                 <data
-                    android:host="readmanga.live"
+                    android:host="readmanga.io"
                     android:pathPattern="/..*/vol..*"
                     android:scheme="https" />
             </intent-filter>

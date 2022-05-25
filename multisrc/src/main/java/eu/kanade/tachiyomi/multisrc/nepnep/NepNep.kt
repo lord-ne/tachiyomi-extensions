@@ -145,10 +145,10 @@ abstract class NepNep(
             .filter {
                 // Comparing query with display name
                 it.getString("s")!!.contains(trimmedQuery, ignoreCase = true) or
-                        // Comparing query with list of alternate names
-                        it.getArray("al").any { altName ->
-                            altName.jsonPrimitive.content.contains(trimmedQuery, ignoreCase = true)
-                        }
+                    // Comparing query with list of alternate names
+                    it.getArray("al").any { altName ->
+                        altName.jsonPrimitive.content.contains(trimmedQuery, ignoreCase = true)
+                    }
             }
 
         val genres = mutableListOf<String>()
@@ -284,7 +284,6 @@ abstract class NepNep(
     override fun chapterListParse(response: Response): List<SChapter> {
         val vmChapters = response.asJsoup().select("script:containsData(MainFunction)").first().data()
             .substringAfter("vm.Chapters = ").substringBefore(";")
-
         return json.parseToJsonElement(vmChapters).jsonArray.map { json ->
             val indexChapter = json.getString("Chapter")!!
             SChapter.create().apply {
@@ -303,19 +302,21 @@ abstract class NepNep(
 
     override fun pageListParse(response: Response): List<Page> {
         val document = response.asJsoup()
-        val script = document.select("script:containsData(MainFunction)").first().data()
-        val curChapter = json.parseToJsonElement(script.substringAfter("vm.CurChapter = ").substringBefore(";")).jsonObject
+        val script = document.selectFirst("script:containsData(MainFunction)")?.data()
+            ?: client.newCall(GET(document.location().removeSuffix(".html"), headers))
+                .execute().asJsoup().selectFirst("script:containsData(MainFunction)").data()
+        val curChapter = json.parseToJsonElement(script!!.substringAfter("vm.CurChapter = ").substringBefore(";")).jsonObject
 
         val pageTotal = curChapter.getString("Page")!!.toInt()
 
         val host = "https://" +
-                script
-                    .substringAfter("vm.CurPathName = \"", "")
-                    .substringBefore("\"")
-                    .also {
-                        if (it.isEmpty())
-                            throw Exception("$name is overloaded and blocking Tachiyomi right now. Wait for unblock.")
-                    }
+            script
+                .substringAfter("vm.CurPathName = \"", "")
+                .substringBefore("\"")
+                .also {
+                    if (it.isEmpty())
+                        throw Exception("$name is overloaded and blocking Tachiyomi right now. Wait for unblock.")
+                }
         val titleURI = script.substringAfter("vm.IndexName = \"").substringBefore("\"")
         val seasonURI = curChapter.getString("Directory")!!
             .let { if (it.isEmpty()) "" else "$it/" }

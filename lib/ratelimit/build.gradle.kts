@@ -5,7 +5,6 @@ plugins {
 
 android {
     compileSdkVersion(AndroidConfig.compileSdk)
-    buildToolsVersion(AndroidConfig.buildTools)
 
     defaultConfig {
         minSdkVersion(AndroidConfig.minSdk)
@@ -18,6 +17,6 @@ repositories {
 }
 
 dependencies {
-    compileOnly(Dependencies.kotlin.stdlib)
-    compileOnly(Dependencies.okhttp)
+    compileOnly(libs.kotlin.stdlib)
+    compileOnly(libs.okhttp)
 }

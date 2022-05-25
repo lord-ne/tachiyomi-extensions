@@ -8,7 +8,6 @@ import android.graphics.Canvas
 import android.graphics.Rect
 import androidx.preference.EditTextPreference
 import androidx.preference.PreferenceScreen
-import eu.kanade.tachiyomi.annotations.Nsfw
 import eu.kanade.tachiyomi.lib.ratelimit.SpecificHostRateLimitInterceptor
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.asObservableSuccess
@@ -42,7 +41,6 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.floor
 
-@Nsfw
 class Jinmantiantang : ConfigurableSource, ParsedHttpSource() {
 
     override val lang: String = "zh"
@@ -144,7 +142,7 @@ class Jinmantiantang : ConfigurableSource, ParsedHttpSource() {
 
     override fun popularMangaNextPageSelector(): String = "a.prevnext"
     override fun popularMangaSelector(): String {
-        val baseSelector = "div.col-xs-6.col-sm-6.col-md-4.col-lg-3.list-col div.well.well-sm"
+        val baseSelector = "div.list-col:not([style])"
         val removedGenres = preferences.getString("BLOCK_GENRES_LIST", "")!!.substringBefore("//").trim()
         // Extra selector is jquery-like selector, it uses regex to match element.text().
         // If string after 標籤 contains any word of removedGenres, the element would be ignored.
@@ -256,7 +254,7 @@ class Jinmantiantang : ConfigurableSource, ParsedHttpSource() {
 
     // 查询漫画状态和类别信息
     private fun selectDetailsStatusAndGenre(document: Document, index: Int): String {
-        var status = "2"
+        var status = "0"
         var genre = ""
         if (document.select("span[itemprop=genre] a").size == 0) {
             return if (index == 1) {
@@ -270,6 +268,9 @@ class Jinmantiantang : ConfigurableSource, ParsedHttpSource() {
             when (val vote: String = value.select("a").text()) {
                 "連載中" -> {
                     status = "1"
+                }
+                "完結" -> {
+                    status = "2"
                 }
                 else -> {
                     genre = "$genre$vote "
@@ -311,13 +312,13 @@ class Jinmantiantang : ConfigurableSource, ParsedHttpSource() {
     // 漫画图片信息
     override fun pageListParse(document: Document): List<Page> {
         fun internalParse(document: Document, pages: MutableList<Page>): List<Page> {
-            val elements = document.select("div[style=text-align:center;][id*=0]")
+            val elements = document.select("div[class=center scramble-page][id*=0]")
             for (element in elements) {
                 pages.apply {
-                    if (element.select("div[style=text-align:center;][id*=0] img").attr("src").indexOf("blank.jpg") >= 0) {
-                        add(Page(size, "", element.select("div[style=text-align:center;][id*=0] img").attr("data-original").split("\\?")[0]))
+                    if (element.select("div[class=center scramble-page][id*=0] img").attr("src").indexOf("blank.jpg") >= 0) {
+                        add(Page(size, "", element.select("div[class=center scramble-page][id*=0] img").attr("data-original").split("\\?")[0]))
                     } else {
-                        add(Page(size, "", element.select("div[style=text-align:center;][id*=0] img").attr("src").split("\\?")[0]))
+                        add(Page(size, "", element.select("div[class=center scramble-page][id*=0] img").attr("src").split("\\?")[0]))
                     }
                 }
             }
@@ -557,11 +558,11 @@ class Jinmantiantang : ConfigurableSource, ParsedHttpSource() {
             "中国大陆总站", "中国大陆分流1", "中国大陆分流2"
         )
         private val SITE_ENTRIES_ARRAY_VALUE = (0..4).map { i -> i.toString() }.toTypedArray()
-        // List is based on http://jmcomic.xyz
+        // List is based on https://jmcomic.bet/
         // Please also update AndroidManifest
         private val SITE_ENTRIES_ARRAY = arrayOf(
             DEFAULT_SITE, "18comic.org",
-            "18comic.art", "18comic1.art", "18comic2.art"
+            "jmcomic.mobi", "jmcomic1.mobi", "jmcomic1.mobi"
         )
     }
 }

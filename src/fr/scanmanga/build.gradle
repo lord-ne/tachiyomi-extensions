@@ -6,9 +6,8 @@ ext {
     extName = 'Scan-Manga'
     pkgNameSuffix = 'fr.scanmanga'
     extClass = '.ScanManga'
-    extVersionCode = 5
-    libVersion = '1.2'
-    containsNsfw = true
+    extVersionCode = 6
+    isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"

@@ -5,9 +5,8 @@ ext {
     extName = 'Yaoichan'
     pkgNameSuffix = 'ru.yaoichan'
     extClass = '.Yaoichan'
-    extVersionCode = 1
-    libVersion = '1.2'
-    containsNsfw = true
+    extVersionCode = 3
+    isNsfw = true
 }
 
 dependencies {

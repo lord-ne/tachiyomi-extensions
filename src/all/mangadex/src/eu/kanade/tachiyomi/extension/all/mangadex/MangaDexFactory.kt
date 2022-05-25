@@ -1,10 +1,8 @@
 package eu.kanade.tachiyomi.extension.all.mangadex
 
-import eu.kanade.tachiyomi.annotations.Nsfw
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.SourceFactory
 
-@Nsfw
 class MangaDexFactory : SourceFactory {
     override fun createSources(): List<Source> = listOf(
         MangaDexEnglish(),
@@ -48,6 +46,8 @@ class MangaDexFactory : SourceFactory {
         MangaDexHebrew(),
         MangaDexHindi(),
         MangaDexNorwegian(),
+        MangaDexNepali(),
+        Other()
     )
 }
 
@@ -92,4 +92,5 @@ class MangaDexLithuanian : MangaDex("lt", "lt")
 class MangaDexHebrew : MangaDex("he", "he")
 class MangaDexHindi : MangaDex("hi", "hi")
 class MangaDexNorwegian : MangaDex("no", "no")
+class MangaDexNepali : MangaDex("ne", "ne")
 class Other : MangaDex("other", "NULL")

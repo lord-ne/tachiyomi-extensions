@@ -46,7 +46,7 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
             .add("Referer", "$baseUrl/")
     }
 
-    private val imageCDNUrl = "https://img1.followmanga.com"
+    private val imageCDNUrls = arrayOf("https://img1.followmanga.com", "https://img1.biggestchef.com", "https://img1.indalchef.com", "https://img1.recipesandcook.com")
 
     private val preferences: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("source_$id", 0x0000)
@@ -54,19 +54,35 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
 
     private val webRateLimitInterceptor = SpecificHostRateLimitInterceptor(
         baseUrl.toHttpUrlOrNull()!!,
-        preferences.getString(WEB_RATELIMIT_PREF, WEB_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(),
-        60
+        preferences.getString(WEB_RATELIMIT_PREF, WEB_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
     )
 
     private val imageCDNRateLimitInterceptor = SpecificHostRateLimitInterceptor(
-        imageCDNUrl.toHttpUrlOrNull()!!,
-        preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(),
-        60
+        imageCDNUrls[0].toHttpUrlOrNull()!!,
+        preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
+    )
+
+    private val imageCDNRateLimitInterceptor1 = SpecificHostRateLimitInterceptor(
+        imageCDNUrls[1].toHttpUrlOrNull()!!,
+        preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
+    )
+
+    private val imageCDNRateLimitInterceptor2 = SpecificHostRateLimitInterceptor(
+        imageCDNUrls[2].toHttpUrlOrNull()!!,
+        preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
+    )
+
+    private val imageCDNRateLimitInterceptor3 = SpecificHostRateLimitInterceptor(
+        imageCDNUrls[3].toHttpUrlOrNull()!!,
+        preferences.getString(IMAGE_CDN_RATELIMIT_PREF, IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE)!!.toInt(), 60
     )
 
     override val client: OkHttpClient = network.client.newBuilder()
         .addNetworkInterceptor(webRateLimitInterceptor)
         .addNetworkInterceptor(imageCDNRateLimitInterceptor)
+        .addNetworkInterceptor(imageCDNRateLimitInterceptor1)
+        .addNetworkInterceptor(imageCDNRateLimitInterceptor2)
+        .addNetworkInterceptor(imageCDNRateLimitInterceptor3)
         .build()
 
     override fun popularMangaRequest(page: Int) = GET("$baseUrl/library?order_item=likes_count&order_dir=desc&type=&filter_by=title&page=$page", headers)
@@ -244,42 +260,52 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
         val currentUrl = client.newCall(GET(chapter.url, headers)).execute().asJsoup().body().baseUri()
 
         // Get /cascade instead of /paginate to get all pages at once
-        val newUrl = if (getPageMethodPref() == "cascade" && currentUrl.contains("paginated")) {
-            currentUrl.substringBefore("paginated") + "cascade"
-        } else if (getPageMethodPref() == "paginated" && currentUrl.contains("cascade")) {
-            currentUrl.substringBefore("cascade") + "paginated"
+        val newUrl = if (getPageMethodPref() == PAGE_METHOD_PREF_CASCADE && currentUrl.contains(PAGE_METHOD_PREF_PAGINATED)) {
+            currentUrl.substringBefore(PAGE_METHOD_PREF_PAGINATED) + PAGE_METHOD_PREF_CASCADE
+        } else if (getPageMethodPref() == PAGE_METHOD_PREF_PAGINATED && currentUrl.contains(PAGE_METHOD_PREF_CASCADE)) {
+            currentUrl.substringBefore(PAGE_METHOD_PREF_CASCADE) + PAGE_METHOD_PREF_PAGINATED
         } else currentUrl
 
         return GET(newUrl, headers)
     }
 
     override fun pageListParse(document: Document): List<Page> = mutableListOf<Page>().apply {
-        if (getPageMethodPref() == "cascade") {
-            document.select("div.viewer-container img").forEach {
+        if (getPageMethodPref() == PAGE_METHOD_PREF_CASCADE) {
+            document.select("div.viewer-image-container img").forEach {
                 add(
                     Page(
                         size,
-                        "",
+                        document.baseUri(),
                         it.let {
-                            if (it.hasAttr("data-src"))
-                                it.attr("abs:data-src") else it.attr("abs:src")
+                            if (it.hasAttr("data-src")) it.attr("abs:data-src")
+                            else it.attr("abs:src")
                         }
                     )
                 )
             }
         } else {
-            val pageList = document.select("#viewer-pages-select").first().select("option").map { it.attr("value").toInt() }
-            val url = document.baseUri().substringBefore("/paginated") // Accounts for url ending in number "/paginated/1"
-            pageList.forEach {
-                add(Page(it, "$url/paginated/$it"))
-            }
+            val body = document.select("script:containsData(var dirPath)").first().data()
+            val path = body.substringAfter("var dirPath = '").substringBefore("'")
+
+            body.substringAfter("var images = JSON.parse('[")
+                .substringBefore("]')")
+                .replace("\"", "")
+                .split(",")
+                .forEach {
+                    add(Page(size, document.baseUri(), path + it))
+                }
         }
     }
 
-    // Note: At this moment (13/07/2020) it's necessary to make the image request without headers to prevent 403.
-    override fun imageRequest(page: Page) = GET(page.imageUrl!!)
+    override fun imageRequest(page: Page) = GET(
+        url = page.imageUrl!!,
+        headers = headers.newBuilder()
+            .removeAll("Referer")
+            .add("Referer", page.url.substringBefore("news/"))
+            .build()
+    )
 
-    override fun imageUrlParse(document: Document): String = document.select("img.viewer-image").attr("src")
+    override fun imageUrlParse(document: Document): String = document.select("img.viewer-image").attr("data-src")
 
     private fun searchMangaByIdRequest(id: String) = GET("$baseUrl/$MANGA_URL_CHUNK/$id", headers)
 
@@ -373,7 +399,7 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
     // Array.from(document.querySelectorAll('#advancedSearch .custom-checkbox'))
     // .map(a => `Genre("${a.querySelector('label').innerText}", "${a.querySelector('input').value}")`).join(',\n')
     // on https://lectormanga.com/library
-    // Last revision 13/07/2020
+    // Last revision 30/08/2021
     private fun getGenreList() = listOf(
         Genre("Acción", "1"),
         Genre("Aventura", "2"),
@@ -448,7 +474,7 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
             key = PAGE_METHOD_PREF
             title = PAGE_METHOD_PREF_TITLE
             entries = arrayOf("Cascada", "Páginado")
-            entryValues = arrayOf("cascade", "paginated")
+            entryValues = arrayOf(PAGE_METHOD_PREF_CASCADE, PAGE_METHOD_PREF_PAGINATED)
             summary = PAGE_METHOD_PREF_SUMMARY
             setDefaultValue(PAGE_METHOD_PREF_DEFAULT_VALUE)
 
@@ -521,7 +547,9 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
         private const val PAGE_METHOD_PREF = "pageMethodPref"
         private const val PAGE_METHOD_PREF_TITLE = "Método para descargar imágenes"
         private const val PAGE_METHOD_PREF_SUMMARY = "Previene ser banneado por el servidor cuando se usa la configuración \"Cascada\" ya que esta reduce la cantidad de solicitudes.\nPuedes usar \"Páginado\" cuando las imágenes no carguen usando \"Cascada\".\nConfiguración actual: %s"
-        private const val PAGE_METHOD_PREF_DEFAULT_VALUE = "cascade"
+        private const val PAGE_METHOD_PREF_CASCADE = "cascade"
+        private const val PAGE_METHOD_PREF_PAGINATED = "paginated"
+        private const val PAGE_METHOD_PREF_DEFAULT_VALUE = PAGE_METHOD_PREF_CASCADE
 
         private const val WEB_RATELIMIT_PREF = "webRatelimitPreference"
         // Ratelimit permits per second for main website
@@ -537,7 +565,7 @@ class LectorManga : ConfigurableSource, ParsedHttpSource() {
         private const val IMAGE_CDN_RATELIMIT_PREF_SUMMARY = "Este valor afecta la cantidad de solicitudes de red para descargar imágenes. Reducir este valor puede disminuir errores al cargar imagenes, pero la velocidad de descarga será más lenta. Se requiere reiniciar Tachiyomi. \nValor actual: %s"
         private const val IMAGE_CDN_RATELIMIT_PREF_DEFAULT_VALUE = "10"
 
-        private val ENTRIES_ARRAY = (1..10).map { i -> i.toString() }.toTypedArray()
+        private val ENTRIES_ARRAY = arrayOf("1", "2", "3", "5", "6", "7", "8", "9", "10", "15", "20", "30", "40", "50", "100")
 
         const val PREFIX_ID_SEARCH = "id:"
         const val MANGA_URL_CHUNK = "gotobook"

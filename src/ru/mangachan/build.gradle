@@ -5,8 +5,7 @@ ext {
     extName = 'Mangachan'
     pkgNameSuffix = 'ru.mangachan'
     extClass = '.Mangachan'
-    extVersionCode = 9
-    libVersion = '1.2'
+    extVersionCode = 12
 }
 
 dependencies {

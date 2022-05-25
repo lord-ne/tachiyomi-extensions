@@ -1,10 +1,8 @@
 package eu.kanade.tachiyomi.extension.all.batoto
 
-import eu.kanade.tachiyomi.annotations.Nsfw
 import eu.kanade.tachiyomi.source.Source
 import eu.kanade.tachiyomi.source.SourceFactory
 
-@Nsfw
 class BatoToFactory : SourceFactory {
     override fun createSources(): List<Source> = languages.map { BatoTo(it.lang, it.siteLang) }
 }
@@ -57,8 +55,8 @@ private val languages = listOf(
     LanguageOption("km"),
     LanguageOption("ca"),
     LanguageOption("ceb"),
-    LanguageOption("zh-rHK", "zh_hk"),
-    LanguageOption("zh-rTW", "zh_tw"),
+    LanguageOption("zh-Hans", "zh_hk"),
+    LanguageOption("zh-Hant", "zh_tw"),
     LanguageOption("hr"),
     LanguageOption("en-US", "en_us"),
     LanguageOption("eo"),
@@ -87,7 +85,7 @@ private val languages = listOf(
     LanguageOption("mt"),
     LanguageOption("mi"),
     LanguageOption("mr"),
-    LanguageOption("mo"),
+    LanguageOption("mo", "ro-MD"),
     LanguageOption("mn"),
     LanguageOption("ne"),
     LanguageOption("no"),

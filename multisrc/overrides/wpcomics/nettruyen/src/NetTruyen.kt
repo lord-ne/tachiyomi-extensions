@@ -4,12 +4,12 @@ import eu.kanade.tachiyomi.multisrc.wpcomics.WPComics
 import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.Page
-import okhttp3.Request
 import okhttp3.Headers
+import okhttp3.Request
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-class NetTruyen : WPComics("NetTruyen", "http://www.nettruyenvip.com", "vi", SimpleDateFormat("dd/MM/yy", Locale.getDefault()), null) {
+class NetTruyen : WPComics("NetTruyen", "http://www.nettruyenco.com", "vi", SimpleDateFormat("dd/MM/yy", Locale.getDefault()), null) {
     override fun headersBuilder(): Headers.Builder = Headers.Builder()
     override fun imageRequest(page: Page): Request = GET(page.imageUrl!!, headersBuilder().add("Referer", baseUrl).build())
     override fun getFilterList(): FilterList {

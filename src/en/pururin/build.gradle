@@ -1,13 +1,13 @@
 apply plugin: 'com.android.application'
 apply plugin: 'kotlin-android'
+apply plugin: 'kotlinx-serialization'
 
 ext {
     extName = 'Pururin'
     pkgNameSuffix = 'en.pururin'
     extClass = '.Pururin'
-    extVersionCode = 4
-    libVersion = '1.2'
-    containsNsfw = true
+    extVersionCode = 6
+    isNsfw = true
 }
 
 apply from: "$rootDir/common.gradle"

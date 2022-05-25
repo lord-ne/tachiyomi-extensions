@@ -1,39 +1,54 @@
 package eu.kanade.tachiyomi.extension.all.imhentai
 
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
+import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
 import eu.kanade.tachiyomi.source.online.ParsedHttpSource
-import eu.kanade.tachiyomi.util.asJsoup
-import okhttp3.Headers
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import org.jsoup.select.Elements
 import rx.Observable
+import uy.kohesive.injekt.injectLazy
+import java.io.IOException
 
 class IMHentai(override val lang: String, private val imhLang: String) : ParsedHttpSource() {
-
-    private val pageLoadHeaders: Headers = Headers.Builder().apply {
-        add("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8")
-        add("X-Requested-With", "XMLHttpRequest")
-    }.build()
 
     override val baseUrl: String = "https://imhentai.xxx"
     override val name: String = "IMHentai"
     override val supportsLatest = true
 
     override val client: OkHttpClient = network.cloudflareClient
+        .newBuilder()
+        .addInterceptor(
+            fun(chain): Response {
+                val response = chain.proceed(chain.request())
+                if (!response.headers("Content-Type").toString().contains("text/html")) return response
+
+                val responseContentType = response.body!!.contentType()
+                val responseString = response.body!!.string()
+
+                if (responseString.contains("Overload... Please use the advanced search")) {
+                    response.close()
+                    throw IOException("IMHentai search is overloaded try again later")
+                }
+
+                return response.newBuilder()
+                    .body(responseString.toResponseBody(responseContentType))
+                    .build()
+            }
+        ).build()
 
     // Popular
 
@@ -65,6 +80,20 @@ class IMHentai(override val lang: String, private val imhLang: String) : ParsedH
 
     // Search
 
+    override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
+        if (query.startsWith("id:")) {
+            val id = query.substringAfter("id:")
+            return client.newCall(GET("$baseUrl/gallery/$id/"))
+                .asObservableSuccess()
+                .map { response ->
+                    val manga = mangaDetailsParse(response)
+                    manga.url = "/gallery/$id/"
+                    MangasPage(listOf(manga), false)
+                }
+        }
+        return super.fetchSearchManga(page, query, filters)
+    }
+
     override fun searchMangaFromElement(element: Element): SManga = popularMangaFromElement(element)
 
     override fun searchMangaNextPageSelector(): String = popularMangaNextPageSelector()
@@ -94,7 +123,8 @@ class IMHentai(override val lang: String, private val imhLang: String) : ParsedH
                         url.addQueryParameter(pair.second, toBinary(filter.state == index))
                     }
                 }
-                else -> { }
+                else -> {
+                }
             }
         }
 
@@ -119,6 +149,11 @@ class IMHentai(override val lang: String, private val imhLang: String) : ParsedH
     }
 
     override fun mangaDetailsParse(document: Document): SManga = SManga.create().apply {
+
+        title = document.selectFirst("div.right_details > h1").text()
+
+        thumbnail_url = document.selectFirst("div.left_cover img").attr("abs:data-src")
+
         val mangaInfoElement = document.select(".galleries_info")
         val infoMap = mangaInfoElement.select("li:not(.pages)").map {
             it.select("span.tags_text").text().removeSuffix(":") to it.select(".tag")
@@ -149,26 +184,10 @@ class IMHentai(override val lang: String, private val imhLang: String) : ParsedH
 
     // Chapters
 
-    private fun pageLoadMetaParse(document: Document): String {
-        return document.select(".gallery_divider ~ input[type=\"hidden\"]").map { m ->
-            m.attr("id") to m.attr("value")
-        }.toMap().let {
-            listOf(
-                Pair("server", "load_server"),
-                Pair("u_id", "gallery_id"),
-                Pair("g_id", "load_id"),
-                Pair("img_dir", "load_dir"),
-                Pair("total_pages", "load_pages")
-            ).map { meta -> "${meta.first}=${it[meta.second]}" }
-                .let { payload -> payload + listOf("type=2", "visible_pages=0") }
-                .joinToString("&")
-        }
-    }
-
     override fun chapterListParse(response: Response): List<SChapter> {
         return listOf(
             SChapter.create().apply {
-                setUrlWithoutDomain(response.request.url.toString())
+                setUrlWithoutDomain(response.request.url.toString().replace("gallery", "view") + "1")
                 name = "Chapter"
                 chapter_number = 1f
             }
@@ -181,19 +200,39 @@ class IMHentai(override val lang: String, private val imhLang: String) : ParsedH
 
     // Pages
 
-    override fun fetchPageList(chapter: SChapter): Observable<List<Page>> {
-        return client.newCall(GET("$baseUrl${chapter.url}"))
-            .asObservableSuccess()
-            .map { pageLoadMetaParse(it.asJsoup()) }
-            .map { it.toRequestBody("application/x-www-form-urlencoded; charset=UTF-8".toMediaTypeOrNull()) }
-            .concatMap { client.newCall(POST(PAEG_LOAD_URL, pageLoadHeaders, it)).asObservableSuccess() }
-            .map { pageListParse(it) }
-    }
+    private val json: Json by injectLazy()
 
     override fun pageListParse(document: Document): List<Page> {
-        return document.select("a").mapIndexed { i, element ->
-            Page(i, element.attr("href"), element.select(".lazy.preloader[src]").attr("src").replace("t.", "."))
+        val image_dir = document.select("#image_dir").`val`()
+        val gallery_id = document.select("#gallery_id").`val`()
+        val u_id = document.select("#u_id").`val`().toInt()
+
+        val random_server = when (u_id) {
+            in 1..274825 -> "m1.imhentai.xxx"
+            in 274826..403818 -> "m2.imhentai.xxx"
+            in 403819..527143 -> "m3.imhentai.xxx"
+            in 527144..632481 -> "m4.imhentai.xxx"
+            in 632482..816010 -> "m5.imhentai.xxx"
+            else -> "m6.imhentai.xxx"
         }
+
+        val images = json.parseToJsonElement(
+            document.selectFirst("script:containsData(var g_th)").data()
+                .substringAfter("$.parseJSON('").substringBefore("');").trim()
+        ).jsonObject
+        val pages = mutableListOf<Page>()
+
+        for (image in images) {
+            val iext = image.value.toString().replace("\"", "").split(",")[0]
+            val iext_pr = when (iext) {
+                "p" -> "png"
+                "b" -> "bmp"
+                "g" -> "gif"
+                else -> "jpg"
+            }
+            pages.add(Page(image.key.toInt() - 1, "", "https://$random_server/$image_dir/$gallery_id/${image.key}.$iext_pr"))
+        }
+        return pages
     }
 
     override fun imageUrlParse(document: Document): String = throw UnsupportedOperationException("Not used")
@@ -202,6 +241,7 @@ class IMHentai(override val lang: String, private val imhLang: String) : ParsedH
 
     private class SortOrderFilter(sortOrderURIs: List<Pair<String, String>>, state: Int) :
         Filter.Select<String>("Sort By", sortOrderURIs.map { it.first }.toTypedArray(), state)
+
     private open class SearchFlagFilter(name: String, val uri: String, state: Boolean = true) : Filter.CheckBox(name, state)
     private class LanguageFilter(name: String, uri: String = name) : SearchFlagFilter(name, uri, false)
     private class LanguageFilters(flags: List<LanguageFilter>) : Filter.Group<LanguageFilter>("Other Languages", flags)
@@ -261,7 +301,5 @@ class IMHentai(override val lang: String, private val imhLang: String) : ParsedH
         const val LANGUAGE_KOREAN = "Korean"
         const val LANGUAGE_GERMAN = "German"
         const val LANGUAGE_RUSSIAN = "Russian"
-
-        private const val PAEG_LOAD_URL: String = "https://imhentai.xxx/inc/thumbs_loader.php"
     }
 }
