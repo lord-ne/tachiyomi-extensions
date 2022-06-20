@@ -1,3 +1,16 @@
+## 1.2.25
+
+### Fix
+
+* Status parsing
+* Artist name parsing
+
+## 1.2.23
+
+### Fix
+
+* Update pageListParse logic to handle website changes
+
 ## 1.2.22
 
 ### Features

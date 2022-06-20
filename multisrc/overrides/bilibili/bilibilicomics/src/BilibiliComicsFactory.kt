@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.extension.all.bilibilicomics
 
-import eu.kanade.tachiyomi.lib.ratelimit.SpecificHostRateLimitInterceptor
 import eu.kanade.tachiyomi.multisrc.bilibili.Bilibili
 import eu.kanade.tachiyomi.multisrc.bilibili.BilibiliAccessToken
 import eu.kanade.tachiyomi.multisrc.bilibili.BilibiliAccessTokenCookie
@@ -12,6 +11,7 @@ import eu.kanade.tachiyomi.multisrc.bilibili.BilibiliTag
 import eu.kanade.tachiyomi.multisrc.bilibili.BilibiliUnlockedEpisode
 import eu.kanade.tachiyomi.multisrc.bilibili.BilibiliUserEpisodes
 import eu.kanade.tachiyomi.network.POST
+import eu.kanade.tachiyomi.network.interceptor.rateLimitHost
 import eu.kanade.tachiyomi.source.SourceFactory
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
@@ -34,6 +34,7 @@ class BilibiliComicsFactory : SourceFactory {
         BilibiliComicsEn(),
         BilibiliComicsCn(),
         BilibiliComicsId(),
+        BilibiliComicsEs()
     )
 }
 
@@ -46,9 +47,9 @@ abstract class BilibiliComics(lang: String) : Bilibili(
     override val client: OkHttpClient = super.client.newBuilder()
         .addInterceptor(::signedInIntercept)
         .addInterceptor(::expiredTokenIntercept)
-        .addInterceptor(SpecificHostRateLimitInterceptor(baseUrl.toHttpUrl(), 1))
-        .addInterceptor(SpecificHostRateLimitInterceptor(CDN_URL.toHttpUrl(), 2))
-        .addInterceptor(SpecificHostRateLimitInterceptor(COVER_CDN_URL.toHttpUrl(), 2))
+        .rateLimitHost(baseUrl.toHttpUrl(), 1)
+        .rateLimitHost(CDN_URL.toHttpUrl(), 2)
+        .rateLimitHost(COVER_CDN_URL.toHttpUrl(), 2)
         .build()
 
     override val signedIn: Boolean
@@ -323,5 +324,30 @@ class BilibiliComicsId : BilibiliComics(BilibiliIntl.INDONESIAN) {
         BilibiliTag("Menegangkan", 41),
         BilibiliTag("Remaja", 20),
         BilibiliTag("Romantis", 13)
+    )
+}
+
+class BilibiliComicsEs : BilibiliComics(BilibiliIntl.SPANISH) {
+
+    override fun getAllGenres(): Array<BilibiliTag> = arrayOf(
+        BilibiliTag("Todos", -1),
+        BilibiliTag("Adolescencia", 105),
+        BilibiliTag("BL", 3),
+        BilibiliTag("Ciberdeportes", 104),
+        BilibiliTag("Ciencia ficción", 8),
+        BilibiliTag("Comedia", 14),
+        BilibiliTag("Fantasía occidental", 106),
+        BilibiliTag("Fantasía", 11),
+        BilibiliTag("Ficción Realista", 116),
+        BilibiliTag("GL", 16),
+        BilibiliTag("Histórico", 12),
+        BilibiliTag("Horror", 23),
+        BilibiliTag("Juvenil", 20),
+        BilibiliTag("Moderno", 111),
+        BilibiliTag("Oriental", 30),
+        BilibiliTag("Romance", 13),
+        BilibiliTag("Suspenso", 41),
+        BilibiliTag("Urbano", 9),
+        BilibiliTag("Wuxia", 103)
     )
 }

@@ -620,6 +620,11 @@ class MangaDexIntl(val lang: String) {
         else -> "Year"
     }
 
+    val sortRating: String = when (availableLang) {
+        BRAZILIAN_PORTUGUESE, PORTUGUESE -> "Nota"
+        else -> "Rating"
+    }
+
     val hasAvailableChapters: String = when (availableLang) {
         BRAZILIAN_PORTUGUESE, PORTUGUESE -> "Há capítulos disponíveis"
         else -> "Has available chapters"
@@ -636,9 +641,9 @@ class MangaDexIntl(val lang: String) {
         else -> "Unable to process Chapter request. HTTP code: $code"
     }
 
-    fun uploadedBy(user: String): String = when (availableLang) {
-        BRAZILIAN_PORTUGUESE, PORTUGUESE -> "Enviado por $user"
-        else -> "Uploaded by $user"
+    fun uploadedBy(users: List<String>): String = when (availableLang) {
+        BRAZILIAN_PORTUGUESE, PORTUGUESE -> "Enviado por ${users.joinToString(" & ")}"
+        else -> "Uploaded by ${users.joinToString(" & ")}"
     }
 
     val noGroup: String = when (availableLang) {

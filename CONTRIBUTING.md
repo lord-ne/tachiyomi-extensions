@@ -8,6 +8,7 @@ This guide is not definitive and it's being updated over time. If you find any i
 
 1. [Prerequisites](#prerequisites)
    1. [Tools](#tools)
+   2. [Cloning the repository](#cloning-the-repository)
 2. [Getting help](#getting-help)
 3. [Writing an extension](#writing-an-extension)
    1. [Setting up a new Gradle module](#setting-up-a-new-gradle-module)
@@ -48,6 +49,69 @@ Before you start, please note that the ability to use following technologies is 
 - [Android Studio](https://developer.android.com/studio)
 - Emulator or phone with developer options enabled and a recent version of Tachiyomi installed
 - [Icon Generator](https://as280093.github.io/AndroidAssetStudio/icons-launcher.html)
+
+### Cloning the repository
+
+Some alternative steps can be followed to ignore "repo" branch and skip unrelated sources, which will make it faster to pull, navigate and build. This will also reduce disk usage and network traffic.
+
+<details><summary>Steps</summary>
+
+1. Make sure to delete "repo" branch in your fork.
+2. Do a partial clone.
+    ```bash
+    git clone --filter=blob:none --no-checkout <fork-repo-url>
+    cd tachiyomi-extensions/
+    ```
+3. Configure sparse checkout.
+    ```bash
+    # enable sparse checkout
+    git sparse-checkout set
+    # edit sparse checkout filter
+    vim .git/info/sparse-checkout
+    # alternatively, if you have VS Code installed
+    code .git/info/sparse-checkout
+    ```
+    Here's an example:
+    ```bash
+    /*
+    !/src/*
+    !/multisrc/overrides/*
+    !/multisrc/src/main/java/eu/kanade/tachiyomi/multisrc/*
+    # allow a single source
+    /src/<lang>/<source>
+    # allow a multisrc theme
+    /multisrc/src/main/java/eu/kanade/tachiyomi/multisrc/<source>
+    /multisrc/overrides/<source>
+    ```
+4. Configure remotes.
+    ```bash
+    # add upstream
+    git remote add upstream <tachiyomiorg-repo-url>
+    # optionally disable push to upstream
+    git remote set-url --push upstream no_pushing
+    # ignore 'repo' branch of upstream
+    # option 1: use negative refspec
+    git config --add remote.upstream.fetch "^refs/heads/repo"
+    # option 2: fetch master only (ignore all other branches)
+    git config remote.upstream.fetch "+refs/heads/master:refs/remotes/upstream/master"
+    # update remotes
+    git remote update
+    # track master of upstream instead of fork
+    git branch master -u upstream/master
+    # checkout
+    git switch master
+    ```
+5. Useful configurations. (optional)
+    ```bash
+    # prune obsolete remote branches on fetch
+    git config remote.origin.prune true
+    # fast-forward only when pulling master branch
+    git config pull.ff only
+    ```
+6. Later, if you change the sparse checkout filter, run `git sparse-checkout reapply`.
+
+Read more on [partial clone](https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/), [sparse checkout](https://github.blog/2020-01-17-bring-your-monorepo-down-to-size-with-sparse-checkout/) and [negative refspecs](https://github.blog/2020-10-19-git-2-29-released/#user-content-negative-refspecs).
+</details>
 
 ## Getting help
 
@@ -124,7 +188,7 @@ apply from: "$rootDir/common.gradle"
 | `pkgNameSuffix` | A unique suffix added to `eu.kanade.tachiyomi.extension`. The language and the site name should be enough. Remember your extension code implementation must be placed in this package. |
 | `extClass` | Points to the class that implements `Source`. You can use a relative path starting with a dot (the package name is the base path). This is used to find and instantiate the source(s). |
 | `extVersionCode` | The extension version code. This must be a positive integer and incremented with any change to the code. |
-| `libVersion` | (Optional, defaults to `1.2`) The version of the [extensions library](https://github.com/tachiyomiorg/extensions-lib) used. |
+| `libVersion` | (Optional, defaults to `1.3`) The version of the [extensions library](https://github.com/tachiyomiorg/extensions-lib) used. |
 | `isNsfw` | (Optional, defaults to `false`) Flag to indicate that a source contains NSFW content. |
 
 The extension's version name is generated automatically by concatenating `libVersion` and `extVersionCode`. With the example used above, the version would be `1.2.1`.
@@ -134,16 +198,6 @@ The extension's version name is generated automatically by concatenating `libVer
 #### Extension API
 
 Extensions rely on [extensions-lib](https://github.com/tachiyomiorg/extensions-lib), which provides some interfaces and stubs from the [app](https://github.com/tachiyomiorg/tachiyomi) for compilation purposes. The actual implementations can be found [here](https://github.com/tachiyomiorg/tachiyomi/tree/master/app/src/main/java/eu/kanade/tachiyomi/source). Referencing the actual implementation will help with understanding extensions' call flow.
-
-#### Rate limiting library
-
-[`lib-ratelimit`](https://github.com/tachiyomiorg/tachiyomi-extensions/tree/master/lib/ratelimit) is a library for adding rate limiting functionality as an [OkHttp interceptor](https://square.github.io/okhttp/interceptors/).
-
-```gradle
-dependencies {
-    implementation(project(':lib-ratelimit'))
-}
-```
 
 #### DataImage library
 
@@ -260,7 +314,7 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
 
 - After a chapter list for the manga is fetched and the app is going to cache the data, `prepareNewChapter` will be called.
 - `SChapter.date_upload` is the [UNIX Epoch time](https://en.wikipedia.org/wiki/Unix_time) **expressed in milliseconds**.
-    - If you don't pass `SChapter.date_upload`, the app will use the fetch date instead, but it's recommended to always fill it if it's available.
+    - If you don't pass `SChapter.date_upload` and leave it zero, the app will use the default date instead, but it's recommended to always fill it if it's available.
     - To get the time in milliseconds from a date string, you can use a `SimpleDateFormat` like in the example below.
 
       ```kotlin
@@ -276,8 +330,13 @@ open class UriPartFilter(displayName: String, private val vals: Array<Pair<Strin
       }
       ```
       
-      Make sure you make the `SimpleDateFormat` a class constant or variable so it doesn't get recreated for every chapter.
-    - If the parsing have any problem, make sure to return `0L` so the app will use the fetch date instead.
+      Make sure you make the `SimpleDateFormat` a class constant or variable so it doesn't get recreated for every chapter. If you need to parse or format dates in manga description, create another instance since `SimpleDateFormat` is not thread-safe.
+    - If the parsing have any problem, make sure to return `0L` so the app will use the default date instead.
+    - The app will overwrite dates of existing old chapters **UNLESS** `0L` is returned.
+    - The default date has [changed](https://github.com/tachiyomiorg/tachiyomi/pull/7197) in preview ≥ r4442 or stable > 0.13.4.
+      - In older versions, the default date is always the fetch date.
+      - In newer versions, this is the same if every (new) chapter has `0L` returned.
+      - However, if the source only provides the upload date of the latest chapter, you can now set it to the latest chapter and leave other chapters default. The app will automatically set it (instead of fetch date) to every new chapter and leave old chapters' dates untouched.
 
 #### Chapter Pages
 
@@ -330,7 +389,7 @@ multisrc
 ├── overrides
 │   └── <themepkg>
 │       ├── default
-│       │   ├── additional.gradle.kts
+│       │   ├── additional.gradle
 │       │   └── res
 │       │       ├── mipmap-hdpi
 │       │       │   └── ic_launcher.png
@@ -344,7 +403,7 @@ multisrc
 │       │       │   └── ic_launcher.png
 │       │       └── web_hi_res_512.png
 │       └── <sourcepkg>
-│           ├── additional.gradle.kts
+│           ├── additional.gradle
 │           ├── AndroidManifest.xml
 │           ├── res
 │           │   ├── mipmap-hdpi
@@ -380,11 +439,11 @@ multisrc
 - `multisrc/src/main/java/eu/kanade/tachiyomi/multisrc/<themepkg>/<Theme>.kt` defines the the theme's default implementation.
 - `multisrc/src/main/java/eu/kanade/tachiyomi/multisrc/<theme>/<Theme>Generator.kt` defines the the theme's generator class, this is similar to a `SourceFactory` class.
 - `multisrc/overrides/<themepkg>/default/res` is the theme's default icons, if a source doesn't have overrides for `res`, then default icons will be used.
-- `multisrc/overrides/<themepkg>/default/additional.gradle.kts` defines additional gradle code, this will be copied at the end of all generated sources from this theme.
+- `multisrc/overrides/<themepkg>/default/additional.gradle` defines additional gradle code, this will be copied at the end of all generated sources from this theme.
 - `multisrc/overrides/<themepkg>/<sourcepkg>` contains overrides for a source that is defined inside the `<Theme>Generator.kt` class.
 - `multisrc/overrides/<themepkg>/<sourcepkg>/src` contains source overrides.
 - `multisrc/overrides/<themepkg>/<sourcepkg>/res` contains override for icons.
-- `multisrc/overrides/<themepkg>/<sourcepkg>/additional.gradle.kts` defines additional gradle code, this will be copied at the end of the generated gradle file below the theme's `additional.gradle.kts`.
+- `multisrc/overrides/<themepkg>/<sourcepkg>/additional.gradle` defines additional gradle code, this will be copied at the end of the generated gradle file below the theme's `additional.gradle`.
 - `multisrc/overrides/<themepkg>/<sourcepkg>/AndroidManifest.xml` is copied as an override to the default `AndroidManifest.xml` generation if it exists.
 
 ### Development workflow
