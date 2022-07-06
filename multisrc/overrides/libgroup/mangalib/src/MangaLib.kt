@@ -6,7 +6,6 @@ import android.widget.Toast
 import androidx.preference.ListPreference
 import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.multisrc.libgroup.LibGroup
-import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
@@ -15,7 +14,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
-import java.io.IOException
 
 class MangaLib : LibGroup("MangaLib", "https://mangalib.me", "ru")  {
 
@@ -24,6 +22,11 @@ class MangaLib : LibGroup("MangaLib", "https://mangalib.me", "ru")  {
     private val preferences: SharedPreferences by lazy {
         Injekt.get<Application>().getSharedPreferences("source_${id}_2", 0x0000)
     }
+
+    private val baseOrig: String = "https://mangalib.me"
+    private val baseMirr: String = "https://mangalib.org"
+    private var domain: String? = preferences.getString(DOMAIN_PREF, baseOrig)
+    override val baseUrl: String = domain.toString()
 
     override val client: OkHttpClient = super.client.newBuilder()
         .addInterceptor(::imageContentTypeIntercept)
@@ -38,11 +41,6 @@ class MangaLib : LibGroup("MangaLib", "https://mangalib.me", "ru")  {
             add("x-csrf-token", csrfToken)
         }
         .build()
-
-    private val baseOrig: String = "https://mangalib.me"
-    private val baseMirr: String = "https://mangalib.org"
-    private var domain: String? = preferences.getString(DOMAIN_PREF, baseOrig)
-    override val baseUrl: String = domain.toString()
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
         if (csrfToken.isEmpty()) {

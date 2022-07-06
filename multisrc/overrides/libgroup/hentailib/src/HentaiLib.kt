@@ -1,11 +1,9 @@
 package eu.kanade.tachiyomi.extension.ru.hentailib
 
 import eu.kanade.tachiyomi.multisrc.libgroup.LibGroup
-import eu.kanade.tachiyomi.network.GET
 import eu.kanade.tachiyomi.network.POST
 import eu.kanade.tachiyomi.source.model.Filter
 import eu.kanade.tachiyomi.source.model.FilterList
-import java.io.IOException
 import okhttp3.Headers
 import okhttp3.OkHttpClient
 import okhttp3.Request
