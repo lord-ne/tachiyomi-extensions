@@ -369,7 +369,7 @@ class MangaDexHelper(lang: String) {
             } else if (chapterDataDto.attributes.volume.isNullOrEmpty()) {
                 "https://fakeimg.pl/1055x1500/111111/EEEEEE/?text=Chapter%0A${chapterDataDto.attributes.chapter}&font_size=400&font=ariel"
             } else {
-                "https://fakeimg.pl/1055x1500/111111/EEEEEE/?text=Volume%0${chapterDataDto.attributes.volume}%0AChapter%0A${chapterDataDto.attributes.chapter}&font_size=300&font=ariel"
+                "https://fakeimg.pl/1055x1500/111111/EEEEEE/?text=Volume%0A${chapterDataDto.attributes.volume}%0AChapter%0A${chapterDataDto.attributes.chapter}&font_size=300&font=ariel"
             }
         }
     }
