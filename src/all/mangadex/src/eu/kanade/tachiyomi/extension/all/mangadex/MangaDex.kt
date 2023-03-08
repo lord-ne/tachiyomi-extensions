@@ -10,6 +10,7 @@ import androidx.preference.SwitchPreferenceCompat
 import eu.kanade.tachiyomi.extension.all.mangadex.dto.AggregateDto
 import eu.kanade.tachiyomi.extension.all.mangadex.dto.AggregateVolume
 import eu.kanade.tachiyomi.extension.all.mangadex.dto.AtHomeDto
+import eu.kanade.tachiyomi.extension.all.mangadex.dto.ChapterDataDto
 import eu.kanade.tachiyomi.extension.all.mangadex.dto.ChapterDto
 import eu.kanade.tachiyomi.extension.all.mangadex.dto.ChapterListDto
 import eu.kanade.tachiyomi.extension.all.mangadex.dto.CoverArtDto
@@ -19,7 +20,6 @@ import eu.kanade.tachiyomi.extension.all.mangadex.dto.MangaDataDto
 import eu.kanade.tachiyomi.extension.all.mangadex.dto.MangaDto
 import eu.kanade.tachiyomi.extension.all.mangadex.dto.MangaListDto
 import eu.kanade.tachiyomi.network.GET
-import eu.kanade.tachiyomi.network.asObservable
 import eu.kanade.tachiyomi.network.asObservableSuccess
 import eu.kanade.tachiyomi.network.interceptor.rateLimit
 import eu.kanade.tachiyomi.source.ConfigurableSource
@@ -179,14 +179,14 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
     override fun fetchSearchManga(page: Int, query: String, filters: FilterList): Observable<MangasPage> {
         return when {
             query.startsWith(MDConstants.prefixChSearch) ->
-                getMangaIdFromChapterId(query.removePrefix(MDConstants.prefixChSearch))
-                    .flatMap { mangaId ->
-                        super.fetchSearchManga(
-                            page = page,
-                            query = MDConstants.prefixIdSearch + mangaId,
-                            filters = filters,
-                        )
-                    }
+                client
+                    .newCall(
+                        request = searchMangaChapterIDRequest(
+                            chapter_id = query.removePrefix(MDConstants.prefixChSearch),
+                        ),
+                    )
+                    .asObservableSuccess()
+                    .flatMap { searchMangaChapterIDParse(it, page, filters) }
 
             query.startsWith(MDConstants.prefixUsrSearch) ->
                 client
@@ -213,18 +213,46 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
         }
     }
 
-    private fun getMangaIdFromChapterId(id: String): Observable<String> {
-        return client.newCall(GET("${MDConstants.apiChapterUrl}/$id", headers))
-            .asObservable()
-            .map { response ->
-                if (response.isSuccessful.not()) {
-                    throw Exception(helper.intl.unableToProcessChapterRequest(response.code))
-                }
+    /**
+     * Used when a chapter link is opened via URL intent. Requests the details
+     * page for that chapter, which is then parsed below.
+     */
+    private fun searchMangaChapterIDRequest(chapter_id: String): Request {
+        return GET("${MDConstants.apiChapterUrl}/$chapter_id", headers, CacheControl.FORCE_NETWORK)
+    }
 
-                response.parseAs<ChapterDto>().data!!.relationships
-                    .filterIsInstance<MangaDataDto>()
-                    .firstOrNull()!!.id
-            }
+    /**
+     * Parses the response to the above function. First, it gets the actual series
+     * that the chapter comes from. It then also includes a manga entry consisting
+     * only of that single chapter.
+     */
+    private fun searchMangaChapterIDParse(response: Response, page: Int, filters: FilterList): Observable<MangasPage> {
+        if (response.isSuccessful.not()) {
+            throw Exception(helper.intl.unableToProcessChapterRequest(response.code))
+        }
+
+        val chapterData = response.parseAs<ChapterDto>().data!!
+
+        val mangaObservable = seriesFromChapterData(chapterData, page, filters)
+
+        return mangaObservable.map { mangasPage ->
+            val singleChapterManga = helper.createMangaFromSingleChapter(
+                chapterData,
+                mangasPage.mangas.firstOrNull()?.title,
+            )
+            MangasPage(mangasPage.mangas + singleChapterManga, false)
+        }
+    }
+
+    /**
+     * Requests and returns the manga corresponding to the given chapter.
+     */
+    private fun seriesFromChapterData(chapterData: ChapterDataDto, page: Int, filters: FilterList): Observable<MangasPage> {
+        val mangaId = chapterData.relationships
+            .filterIsInstance<MangaDataDto>()
+            .firstOrNull()!!.id
+
+        return super.fetchSearchManga(page, MDConstants.prefixIdSearch + mangaId, filters)
     }
 
     override fun searchMangaRequest(page: Int, query: String, filters: FilterList): Request {
@@ -369,10 +397,44 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
 
     override fun getMangaUrl(manga: SManga): String {
         // TODO: Remove once redirect for /manga is fixed.
-        val title = manga.title
-        val url = "${baseUrl}${manga.url.replace("manga", "title")}"
+        if (baseUrl.contains("/manga")) {
+            val title = manga.title
+            val url = "${baseUrl}${manga.url.replace("/manga", "/title")}"
+            return "$url/" + helper.titleToSlug(title)
+        }
 
-        return "$url/" + helper.titleToSlug(title)
+        return "${baseUrl}${manga.url}"
+    }
+
+    override fun fetchMangaDetails(manga: SManga): Observable<SManga> {
+        if (manga.url.startsWith("/chapter")) {
+            return client.newCall(singleChapterMangaDetailsRequest(manga))
+                .asObservableSuccess()
+                .map { response ->
+                    singleChapterMangaDetailsParse(response, manga)
+                }
+        }
+        return super.fetchMangaDetails(manga)
+    }
+
+    /**
+     * Used when fetching the details for a single chapter (opened via URL intent)
+     */
+    private fun singleChapterMangaDetailsRequest(manga: SManga): Request {
+        return GET("${MDConstants.apiChapterUrl}/${helper.getUUIDFromUrl(manga.url)}", headers, CacheControl.FORCE_NETWORK)
+    }
+
+    /**
+     * Parses the response to the above function. We pass in the original SManga so we can
+     * try and maintain the description (which includes the series title), since this
+     * information would otherwise require an additional request.
+     */
+    private fun singleChapterMangaDetailsParse(response: Response, oldManga: SManga): SManga {
+        val chapterData = response.parseAs<ChapterDto>().data!!
+        return helper.createMangaFromSingleChapter(
+            chapterData,
+            oldManga.description?.substringAfter(": ", ""),
+        )
     }
 
     /**
@@ -474,6 +536,17 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
 
     // Chapter list section
 
+    override fun fetchChapterList(manga: SManga): Observable<List<SChapter>> {
+        if (manga.url.startsWith("/chapter")) {
+            return client.newCall(singleChapterListRequest(manga))
+                .asObservableSuccess()
+                .map { response ->
+                    singleChapterListParse(response)
+                }
+        }
+        return super.fetchChapterList(manga)
+    }
+
     /**
      * Get the API endpoint URL for the first page of chapter list.
      *
@@ -535,6 +608,28 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
         return chapterListResults
             .filterNot { it.attributes!!.isInvalid }
             .map(helper::createChapter)
+    }
+
+    private fun singleChapterListRequest(manga: SManga): Request {
+        val url = "${MDConstants.apiChapterUrl}/${helper.getUUIDFromUrl(manga.url)}"
+            .toHttpUrl().newBuilder()
+            .addQueryParameter("includes[]", MDConstants.scanlationGroup)
+            .addQueryParameter("includes[]", MDConstants.user)
+            .toString()
+
+        return GET(url, headers, CacheControl.FORCE_NETWORK)
+    }
+
+    private fun singleChapterListParse(response: Response): List<SChapter> {
+        if (response.isSuccessful.not()) {
+            throw Exception(helper.intl.unableToProcessChapterRequest(response.code))
+        }
+        val chapterResponse = response.parseAs<ChapterDto>()
+        if (chapterResponse.data!!.attributes!!.isInvalid) {
+            throw Exception("Licensed - No chapters to show")
+        }
+
+        return listOf(helper.createChapter(chapterResponse.data))
     }
 
     override fun getChapterUrl(chapter: SChapter): String = baseUrl + chapter.url

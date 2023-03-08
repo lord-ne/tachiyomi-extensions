@@ -346,6 +346,35 @@ class MangaDexHelper(lang: String) {
     }
 
     /**
+     * Creates an [SManga] consisting of a single chapter.
+     * This is used when receiving chapter links via URL intent
+     */
+    fun createMangaFromSingleChapter(chapterDataDto: ChapterDataDto, seriesTitle: String? = null): SManga {
+        val chapter = createChapter(chapterDataDto)
+        return SManga.create().apply {
+            url = chapter.url
+            title = if (seriesTitle.isNullOrEmpty()) {
+                chapter.name
+            } else {
+                "${chapter.name} - $seriesTitle"
+            }
+            initialized = true
+            description = if (seriesTitle.isNullOrEmpty()) {
+                "Single chapter"
+            } else {
+                "Single chapter from series: $seriesTitle"
+            }
+            thumbnail_url = if (chapterDataDto.attributes?.chapter == null) {
+                "https://fakeimg.pl/1055x1500/111111/EEEEEE/?text=Chapter&font_size=400&font=ariel"
+            } else if (chapterDataDto.attributes.volume.isNullOrEmpty()) {
+                "https://fakeimg.pl/1055x1500/111111/EEEEEE/?text=Chapter%0A${chapterDataDto.attributes.chapter}&font_size=400&font=ariel"
+            } else {
+                "https://fakeimg.pl/1055x1500/111111/EEEEEE/?text=Volume%0${chapterDataDto.attributes.volume}%0AChapter%0A${chapterDataDto.attributes.chapter}&font_size=300&font=ariel"
+            }
+        }
+    }
+
+    /**
      * Create the [SChapter] from the JSON element.
      */
     fun createChapter(chapterDataDto: ChapterDataDto): SChapter {
