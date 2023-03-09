@@ -235,6 +235,10 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
 
         val mangaObservable = seriesFromChapterData(chapterData, page, filters)
 
+        if (!preferences.chapterLinkSeries) {
+            return mangaObservable
+        }
+
         return mangaObservable.map { mangasPage ->
             val singleChapterManga = helper.createMangaFromSingleChapter(
                 chapterData,
@@ -822,10 +826,26 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
             }
         }
 
+        val chapterLinkSeriesPref = SwitchPreferenceCompat(screen.context).apply {
+            key = MDConstants.getChapterLinkSeriesPrefKey(dexLang)
+            title = helper.intl.chapterLinkSeries
+            summary = helper.intl.chapterLinkSeriesSummary
+            setDefaultValue(false)
+
+            setOnPreferenceChangeListener { _, newValue ->
+                val checkValue = newValue as Boolean
+
+                preferences.edit()
+                    .putBoolean(MDConstants.getChapterLinkSeriesPrefKey(dexLang), checkValue)
+                    .commit()
+            }
+        }
+
         screen.addPreference(coverQualityPref)
         screen.addPreference(tryUsingFirstVolumeCoverPref)
         screen.addPreference(dataSaverPref)
         screen.addPreference(standardHttpsPortPref)
+        screen.addPreference(chapterLinkSeriesPref)
         screen.addPreference(contentRatingPref)
         screen.addPreference(originalLanguagePref)
         screen.addPreference(blockedGroupsPref)
@@ -897,6 +917,9 @@ abstract class MangaDex(final override val lang: String, private val dexLang: St
 
     private val SharedPreferences.useDataSaver
         get() = getBoolean(MDConstants.getDataSaverPreferenceKey(dexLang), false)
+
+    private val SharedPreferences.chapterLinkSeries
+        get() = getBoolean(MDConstants.getChapterLinkSeriesPrefKey(dexLang), false)
 
     /**
      * Previous versions of the extension allowed invalid UUID values to be stored in the

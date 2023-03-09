@@ -125,6 +125,11 @@ object MDConstants {
         return "${tryUsingFirstVolumeCoverPref}_$dexLang"
     }
 
+    private const val chapterLinkSeriesPref = "chapterLinkSeries"
+    fun getChapterLinkSeriesPrefKey(dexLang: String): String {
+        return "${chapterLinkSeriesPref}_$dexLang"
+    }
+
     private const val tagGroupContent = "content"
     private const val tagGroupFormat = "format"
     private const val tagGroupGenre = "genre"

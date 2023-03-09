@@ -87,6 +87,16 @@ class MangaDexIntl(lang: String) {
         else -> "Enables smaller, more compressed images"
     }
 
+    val chapterLinkSeries: String = when (availableLang) {
+        else -> "Show chapter links as series"
+    }
+
+    val chapterLinkSeriesSummary: String = when (availableLang) {
+        else ->
+            "When opening $MANGADEX_NAME chapter links in Tachiyomi, display an additional " +
+                "series in the search results that contains only that individual chapter"
+    }
+
     val standardHttpsPort: String = when (availableLang) {
         BRAZILIAN_PORTUGUESE, PORTUGUESE -> "Utilizar somente a porta 443 do HTTPS"
         SPANISH_LATAM, SPANISH -> "Utilizar el puerto 443 de HTTPS"
